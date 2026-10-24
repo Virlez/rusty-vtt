@@ -1,0 +1,74 @@
+import {spawn} from 'node:child_process';
+import {mkdtemp,readFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join,resolve} from 'node:path';
+import assert from 'node:assert/strict';
+const dir=await mkdtemp(join(tmpdir(),'rusty-vtt-test-'));
+const port=process.env.TEST_PORT||'3017';
+const url=`http://127.0.0.1:${port}`;
+const binary=resolve(process.argv[2]||'target/release/rusty-vtt.exe');
+let server;
+async function boot(){server=spawn(binary,[],{env:{...process.env,RUSTY_BIND:`127.0.0.1:${port}`,RUSTY_DATA:join(dir,'world.json'),RUSTY_GM_PASSWORD:'test-gm'},stdio:'pipe',windowsHide:true});server.on('error',e=>console.error(e));for(let n=0;n<100;n++){try{if((await fetch(url)).ok)return}catch{}await new Promise(r=>setTimeout(r,100));}throw Error('Serveur indisponible');}
+async function stop(){if(server&&!server.killed){await new Promise(resolve=>{server.once('exit',resolve);server.kill();});}}
+async function api(path,body,cookie,expected=200){const r=await fetch(url+path,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json',...(cookie?{Cookie:cookie}:{})},body:body===undefined?undefined:JSON.stringify(body)});assert.equal(r.status,expected,`${path}: ${r.status} au lieu de ${expected}`);return r;}
+try {
+await boot();
+await api('/api/state',undefined,null,401);
+await api('/api/login',{name:'MJ',password:'incorrect'},null,401);
+const gm=(await api('/api/login',{name:'MJ',password:'test-gm'})).headers.get('set-cookie').split(';')[0];
+const player=(await api('/api/login',{name:'Alice',password:''})).headers.get('set-cookie').split(';')[0];
+const act=(data,cookie=gm,status=200)=>api('/api/action',data,cookie,status);
+// Installed modules are inactive until explicitly enabled for this world.
+const installed=await (await api('/api/modules',undefined,gm)).json();
+assert.deepEqual(installed.map(m=>m.id),['dnd5e-character-builder']);
+await act({kind:'module_toggle',id:'dnd5e-character-builder',enabled:true},player,403);
+await act({kind:'module_toggle',id:'dnd5e-character-builder',enabled:true});
+await act({kind:'add_actor',name:'Test',hp:30,max_hp:30,armor:15,owner:'Alice',notes:'Fiche de test'});
+await act({kind:'add_token',name:'Test pion',x:50,y:50,owner:'Alice'});
+await act({kind:'chat',text:'Bonjour depuis un joueur'},player);
+await act({kind:'roll',formula:'2d6+3'},player);
+await act({kind:'roll',formula:'101d6'},player,400);
+await act({kind:'fog_clear'},player,403);
+await act({kind:'move_token',id:'wolf',x:0,y:0},player,403);
+await act({kind:'move_token',id:'hero',x:450,y:450},player);
+await act({kind:'move_token',id:'hero',x:-100,y:0},player,400);
+await act({kind:'update_token',id:'wolf',hidden:true});
+await act({kind:'add_journal',name:'Secret',content:'Trésor caché',public:false});
+await act({kind:'add_item',name:'Épée',description:'1d8 dégâts'});
+await act({kind:'combat_add',id:'hero'});
+await act({kind:'combat_next'});
+await act({kind:'wall_add',x1:0,y1:0,x2:100,y2:100});
+await act({kind:'note_add',x:50,y:50,text:'Une note cachée'});
+await act({kind:'fog_add',x:0,y:0,w:100,h:100});
+await act({kind:'playlist_add',name:'Forêt',url:'https://example.com/forest.ogg'});
+const p=await (await api('/api/state',undefined,player)).json();
+assert.equal(p.world.scenes[0].tokens.some(t=>t.id==='wolf'),false);
+assert.equal(p.world.scenes[0].tokens.some(t=>t.name==='Test pion'),false);
+assert.equal(p.world.scenes[0].notes.length,0);
+assert.equal(p.world.journals.some(j=>j.name==='Secret'),false);
+await api('/api/export',undefined,player,403);
+await api('/api/import',{},gm,400);
+const exported=await (await api('/api/export',undefined,gm)).json();
+await act({kind:'add_scene',name:'Ruines de test',width:1800,height:1200,grid:60});
+const newWorld=await (await api('/api/state',undefined,gm)).json();
+const newId=newWorld.world.scenes.at(-1).id;
+await act({kind:'activate_scene',id:newId});
+const activated=await (await api('/api/state',undefined,player)).json();
+assert.equal(activated.world.active_scene,newId);
+await api('/api/import',exported,gm);
+const controller=new AbortController();
+const stream=await fetch(url+'/api/events',{headers:{Cookie:player},signal:controller.signal});
+const reader=stream.body.getReader();
+await act({kind:'chat',text:'Événement synchronisé'});
+const frame=await Promise.race([reader.read(),new Promise((_,reject)=>setTimeout(()=>reject(Error('SSE expiré')),3000))]);
+assert.match(new TextDecoder().decode(frame.value),/data:/);controller.abort();
+const disk=JSON.parse(await readFile(join(dir,'world.json'),'utf8'));
+assert.equal(disk.messages.at(-1).text,'Événement synchronisé');
+await stop();await boot();
+const gm2=(await api('/api/login',{name:'MJ',password:'test-gm'})).headers.get('set-cookie').split(';')[0];
+const restored=await (await api('/api/state',undefined,gm2)).json();
+assert.equal(restored.world.messages.at(-1).text,'Événement synchronisé');
+assert.equal(restored.world.modules['dnd5e-character-builder'].enabled,true);
+console.log('PASS — registre des modules (activation et permissions), HTTP, MJ/joueur, dés, documents, combat, brouillard, SSE, import/export et persistance.');
+console.log('Données de test : '+dir);
+} finally {await stop();}

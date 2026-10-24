@@ -1,0 +1,10 @@
+{
+  "module": "dnd5e-character-builder",
+  "version": "0.9.921",
+  "revision": "1d406d374eb20d8fbadd4f666f4389443a60be0e",
+  "repository": "https://github.com/hammer-PvP/DnD-5e-Character-Builder",
+  "srd": "https://media.dndbeyond.com/compendium-images/srd/5.2/FR_SRD_CC_v5.2.1.pdf",
+  "spells": 339,
+  "language": "fr",
+  "adapter": "Rusty VTT native Rust + French UI"
+}
