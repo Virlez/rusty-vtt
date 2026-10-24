@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import assert from 'node:assert/strict';
 const dir=await mkdtemp(join(tmpdir(),'rusty-security-'));
-const url='http://127.0.0.1:3029',binary=resolve('target/debug/rusty-vtt.exe');
+const url='http://127.0.0.1:3029',binary=resolve(process.argv[2] || `target/debug/rusty-vtt${process.platform === 'win32' ? '.exe' : ''}`);
 const gmSecret='audit-gm-secret-123456';
 const players={Alice:'alice-secret-123456',Eve:'eve-secret-12345678'};
 let server,output='',proxy=false;

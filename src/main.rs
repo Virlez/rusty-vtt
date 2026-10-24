@@ -969,6 +969,7 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .expect("Adresse indisponible");
+    let addr = listener.local_addr().expect("Adresse locale indisponible");
     println!("Rusty VTT — http://{addr} — Ctrl+C pour arrêter");
     axum::serve(
         listener,
@@ -984,6 +985,30 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn fog_includes_edges_but_not_adjacent_points() {
+        let fog = vec![json!({"x":10,"y":20,"w":30,"h":40})];
+        for (x, y) in [(10., 20.), (40., 60.), (25., 40.)] {
+            assert!(covered(&json!({"x":x,"y":y}), &fog));
+        }
+        for (x, y) in [(9.99, 20.), (40.01, 60.), (25., 60.01), (25., 19.99)] {
+            assert!(!covered(&json!({"x":x,"y":y}), &fog));
+        }
+        assert!(!covered(&json!({"x":10,"y":20}), &[]));
+    }
+
+    #[test]
+    fn fixed_dice_arithmetic_and_detail_agree() {
+        for (formula, total) in [("42", 42), ("10+5-3", 12), ("2d6-2d6", 0)] {
+            let result = roll(formula).unwrap();
+            if !formula.contains('d') {
+                assert_eq!(result.total, total);
+            } else {
+                assert!((-10..=10).contains(&result.total));
+            }
+            assert!(!result.formula.is_empty());
+        }
+    }
     fn player() -> User {
         User {
             name: "Alice".into(),

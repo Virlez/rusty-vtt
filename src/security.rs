@@ -92,6 +92,40 @@ pub fn bind_address(raw: &str) -> Result<SocketAddr, (StatusCode, String)> {
 mod tests {
     use super::*;
     #[test]
+    fn expired_rate_window_resets_without_sleeping() {
+        let mut window = Window::new();
+        assert!(!window.allow(0));
+        assert!(window.allow(1));
+        assert!(!window.allow(1));
+        window.start = Instant::now() - Duration::from_secs(61);
+        assert!(window.expired());
+        assert!(window.allow(1));
+        assert!(!window.allow(1));
+    }
+
+    #[test]
+    fn rejects_invalid_player_configuration_and_public_bindings() {
+        for raw in [
+            "null",
+            "[]",
+            "{",
+            r#"{" Alice":"1234567890123456"}"#,
+            r#"{"":"1234567890123456"}"#,
+            r#"{"Alice":"gm-secret-12345678"}"#,
+        ] {
+            assert!(players(raw, "gm-secret-12345678").is_err(), "{raw}");
+        }
+        for addr in [
+            "localhost:3000",
+            "192.168.1.2:3000",
+            "127.0.0.1:99999",
+            "bad",
+        ] {
+            assert!(bind_address(addr).is_err(), "{addr}");
+        }
+        assert!(bind_address("[::1]:0").is_ok());
+    }
+    #[test]
     fn configuration_and_rate_window() {
         assert!(players(r#"{"Alice":"short"}"#, "gm").is_err());
         assert!(

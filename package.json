@@ -1,0 +1,14 @@
+{
+  "name": "rusty-vtt-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "npm run test:unit && npm run test:integration && npm run test:e2e",
+    "test:unit": "cargo test --locked",
+    "test:integration": "cargo build --locked && node tests/run-integration.mjs",
+    "test:e2e": "cargo build --locked && playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:report": "playwright show-report"
+  },
+  "devDependencies": { "@playwright/test": "1.61.1" }
+}
