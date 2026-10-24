@@ -6,7 +6,7 @@ Table de jeu de rôle virtuelle indépendante, en français. Le serveur, les dé
 
 1. Installer Rust stable puis lancer **cargo run --locked** dans ce dossier.
 2. Ouvrir **http://127.0.0.1:3000** dans un navigateur.
-3. Choisir un nom. Pour devenir meneur, saisir le mot de passe initial **rusty-gm**. Pour rejoindre comme joueur, laisser ce champ vide.
+3. Choisir un nom et saisir le secret MJ affiché dans la console au démarrage, ou votre nom et votre secret joueur configurés par le meneur. Aucun accès joueur anonyme n'est accepté.
 4. Arrêter le serveur avec **Ctrl+C** dans sa console.
 
 Le serveur intègre l’interface à la compilation. Cette édition publique distribue les sources ; les sauvegardes locales sont exclues.
@@ -31,18 +31,40 @@ Le serveur intègre l’interface à la compilation. Cette édition publique dis
 
 Chaque action acceptée est sauvegardée dans `data/world.json` avant notification aux clients. Écriture temporaire puis remplacement du fichier ; une écriture échouée laisse l'état en mémoire inchangé. Le serveur refuse de démarrer sur un fichier corrompu plutôt que d'écraser votre monde. Exporter des copies avant une importation : importer remplace le monde courant.
 
-Les sessions sont en mémoire et disparaissent au redémarrage. La connexion joueur utilise un nom libre, prévu pour une table de confiance ; ce n'est pas un système de comptes avec vérification d'identité. Ne pas exposer ce prototype directement sur Internet.
+Les sessions expirent après huit heures et disparaissent au redémarrage. Cliquer sur son identité déconnecte la session et efface son cookie. Chaque joueur doit disposer d'un secret individuel configuré par l'hôte ; les noms configurés sont les identifiants stables utilisés par les propriétaires existants. Conserver exactement ces noms lors de la configuration d'une campagne existante. Les secrets ne figurent jamais dans les exports du monde. Pour retirer un accès ou changer un secret, modifier la configuration et redémarrer le serveur : toutes les anciennes sessions sont alors invalidées.
 
 Configuration PowerShell avant de lancer :
 
 ```powershell
-$env:RUSTY_GM_PASSWORD = 'votre-mot-de-passe'
+$env:RUSTY_GM_PASSWORD = [guid]::NewGuid().ToString('N')
+$aliceSecret = [guid]::NewGuid().ToString('N')
+$bobSecret = [guid]::NewGuid().ToString('N')
+$env:RUSTY_PLAYERS_JSON = @{ Alice = $aliceSecret; Bob = $bobSecret } | ConvertTo-Json -Compress
 $env:RUSTY_BIND = '127.0.0.1:3000'
 $env:RUSTY_DATA = 'data/world.json'
+$env:RUSTY_HTTPS = '0' # Développement local uniquement
+# Communiquer séparément chaque secret au joueur concerné ; conserver les secrets
+# dans un emplacement privé pour les réutiliser au prochain lancement.
 cargo run --locked
 ```
 
-Pour jouer sur un réseau local de confiance, définir `RUSTY_BIND` à `0.0.0.0:3000`, puis fournir aux joueurs `http://IP_LOCALE_DU_MJ:3000`. Le pare-feu doit autoriser ce port. Le projet ne modifie pas le pare-feu ni le routeur. Pour plusieurs campagnes, lancer des instances avec ports et chemins `RUSTY_DATA` différents.
+Un secret configuré doit avoir au moins 16 octets ; utiliser des valeurs aléatoires distinctes pour le MJ et chaque joueur. Sans `RUSTY_GM_PASSWORD`, un secret MJ aléatoire est généré et affiché pour cette exécution. Sans `RUSTY_PLAYERS_JSON`, aucun compte joueur n'est activé. La configuration est chargée au démarrage ; ne pas placer ces valeurs dans Git.
+
+L'écoute HTTP est limitée aux adresses de boucle locale (`127.0.0.1` ou `::1`). Les anciennes configurations `0.0.0.0` sont refusées. Pour accéder à la table depuis une autre machine, installer un proxy HTTPS sur la machine hôte et définir `RUSTY_HTTPS=1`. Le proxy doit terminer TLS avec un certificat approuvé, rediriger HTTP vers HTTPS et remplacer `X-Forwarded-Proto` par `https` sur les requêtes HTTPS vers le serveur local. Dans ce mode, les API refusent les requêtes sans cette indication, les cookies portent `Secure` et les réponses HTTPS portent HSTS. Cette option ne crée ni certificat ni proxy.
+
+Exemple de configuration Caddy (remplacer le domaine par celui de votre installation et le faire pointer vers votre hôte) :
+
+```caddyfile
+table.example.org {
+    reverse_proxy 127.0.0.1:3000 {
+        header_up X-Forwarded-Proto https
+    }
+}
+```
+
+Le backend reste sur la boucle locale ; seul le proxy est accessible aux participants. Le projet ne modifie pas le pare-feu ni le routeur. Pour plusieurs campagnes, lancer des instances avec ports et chemins `RUSTY_DATA` différents.
+
+Limites de protection : 30 tentatives de connexion par minute et par IP source, 8 sessions par nom, 256 sessions au total, 120 mutations par minute et par session, 2 flux d'événements par session et 32 au total. Derrière un proxy local, le quota de connexion est partagé par la table : le serveur utilise l'IP de la connexion réelle et ne fait pas confiance à `X-Forwarded-For`. Le monde sauvegardé est limité à 32 Mio. Une limite dépassée refuse la requête ; les quotas ne remplacent pas la maîtrise de l'accès au proxy.
 
 ## Développement et vérification
 
@@ -86,6 +108,6 @@ Activer **Créateur de personnage 5e — Français** dans **Paramètres → Gér
 
 **Paramètres → Scène : murs, portes et vision** : collisions serveur, portes verrouillables et portée de vision des pions arrêtée par les murs. Les options sont désactivées par défaut dans les anciennes scènes. Le fond de carte complet reste téléchargé : son masque ne protège pas les détails de l'image.
 
-Le chat propose jets MJ, aveugles et personnels, ainsi que les murmures (`/gmroll`, `/blindroll`, `/selfroll`, `/w "Nom" message`). La confidentialité dépend des noms de session libres de cette table de confiance. **Personnages/Rencontre → États et durées** ajoute les états temporisés descriptifs, sans modifier automatiquement les caractéristiques.
+Le chat propose jets MJ, aveugles et personnels, ainsi que les murmures (`/gmroll`, `/blindroll`, `/selfroll`, `/w "Nom" message`). Les noms sont authentifiés par les secrets individuels configurés par l'hôte. Les combattants masqués par le brouillard, la vision ou leur option cachée sont retirés de l'ordre de combat envoyé aux joueurs ; le tour affiché est recalculé. **Personnages/Rencontre → États et durées** ajoute les états temporisés descriptifs, sans modifier automatiquement les caractéristiques.
 
 Test HTTP isolé : `node tests/advanced.mjs target/debug/rusty-vtt.exe`.

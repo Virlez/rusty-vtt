@@ -8,15 +8,15 @@ const port=process.env.TEST_PORT||'3017';
 const url=`http://127.0.0.1:${port}`;
 const binary=resolve(process.argv[2]||'target/release/rusty-vtt.exe');
 let server;
-async function boot(){server=spawn(binary,[],{env:{...process.env,RUSTY_BIND:`127.0.0.1:${port}`,RUSTY_DATA:join(dir,'world.json'),RUSTY_GM_PASSWORD:'test-gm'},stdio:'pipe',windowsHide:true});server.on('error',e=>console.error(e));for(let n=0;n<100;n++){try{if((await fetch(url)).ok)return}catch{}await new Promise(r=>setTimeout(r,100));}throw Error('Serveur indisponible');}
+async function boot(){server=spawn(binary,[],{env:{...process.env,RUSTY_BIND:`127.0.0.1:${port}`,RUSTY_DATA:join(dir,'world.json'),RUSTY_GM_PASSWORD:'audit-gm-secret-123456',RUSTY_HTTPS:'0',RUSTY_PLAYERS_JSON:JSON.stringify({Alice:'alice-secret-123456',Bob:'bob-secret-12345678',Eve:'eve-secret-12345678'})},stdio:'pipe',windowsHide:true});server.on('error',e=>console.error(e));for(let n=0;n<100;n++){try{if((await fetch(url)).ok)return}catch{}await new Promise(r=>setTimeout(r,100));}throw Error('Serveur indisponible');}
 async function stop(){if(server&&!server.killed){await new Promise(resolve=>{server.once('exit',resolve);server.kill();});}}
 async function api(path,body,cookie,expected=200){const r=await fetch(url+path,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json',...(cookie?{Cookie:cookie}:{})},body:body===undefined?undefined:JSON.stringify(body)});assert.equal(r.status,expected,`${path}: ${r.status} au lieu de ${expected}`);return r;}
 try {
 await boot();
 await api('/api/state',undefined,null,401);
 await api('/api/login',{name:'MJ',password:'incorrect'},null,401);
-const gm=(await api('/api/login',{name:'MJ',password:'test-gm'})).headers.get('set-cookie').split(';')[0];
-const player=(await api('/api/login',{name:'Alice',password:''})).headers.get('set-cookie').split(';')[0];
+const gm=(await api('/api/login',{name:'MJ',password:'audit-gm-secret-123456'})).headers.get('set-cookie').split(';')[0];
+const player=(await api('/api/login',{name:'Alice',password:'alice-secret-123456'})).headers.get('set-cookie').split(';')[0];
 const act=(data,cookie=gm,status=200)=>api('/api/action',data,cookie,status);
 // Installed modules are inactive until explicitly enabled for this world.
 const installed=await (await api('/api/modules',undefined,gm)).json();
@@ -65,7 +65,7 @@ assert.match(new TextDecoder().decode(frame.value),/data:/);controller.abort();
 const disk=JSON.parse(await readFile(join(dir,'world.json'),'utf8'));
 assert.equal(disk.messages.at(-1).text,'Événement synchronisé');
 await stop();await boot();
-const gm2=(await api('/api/login',{name:'MJ',password:'test-gm'})).headers.get('set-cookie').split(';')[0];
+const gm2=(await api('/api/login',{name:'MJ',password:'audit-gm-secret-123456'})).headers.get('set-cookie').split(';')[0];
 const restored=await (await api('/api/state',undefined,gm2)).json();
 assert.equal(restored.world.messages.at(-1).text,'Événement synchronisé');
 assert.equal(restored.world.modules['dnd5e-character-builder'].enabled,true);

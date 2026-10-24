@@ -1,7 +1,8 @@
 use axum::{
     Json, Router,
-    extract::{DefaultBodyLimit, State},
+    extract::{ConnectInfo, DefaultBodyLimit, Request, State},
     http::{HeaderMap, StatusCode, header},
+    middleware::{self, Next},
     response::{
         Html, IntoResponse, Response, Sse,
         sse::{Event, KeepAlive},
@@ -11,14 +12,22 @@ use axum::{
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{collections::HashMap, convert::Infallible, path::PathBuf, sync::Arc};
-use tokio::sync::{Mutex, broadcast};
+use std::{
+    collections::HashMap,
+    convert::Infallible,
+    net::{IpAddr, SocketAddr},
+    path::PathBuf,
+    sync::Arc,
+    time::Instant,
+};
+use tokio::sync::{Mutex, Semaphore, broadcast};
 use tokio_stream::{StreamExt, wrappers::BroadcastStream};
 mod builder;
 mod chat;
 mod effects;
 mod modules;
 mod scene_tools;
+mod security;
 
 #[derive(Clone, Serialize, Deserialize)]
 struct User {
@@ -28,7 +37,8 @@ struct User {
 struct Inner {
     world: Value,
     revision: u64,
-    sessions: HashMap<String, User>,
+    sessions: HashMap<String, security::Session>,
+    logins: HashMap<IpAddr, security::Window>,
 }
 #[derive(Clone)]
 struct App {
@@ -36,6 +46,9 @@ struct App {
     events: broadcast::Sender<u64>,
     file: PathBuf,
     gm_password: Arc<String>,
+    players: Arc<HashMap<String, String>>,
+    secure_cookies: bool,
+    streams: Arc<Semaphore>,
 }
 type ApiResult = Result<Json<Value>, (StatusCode, String)>;
 fn bad(s: &str) -> (StatusCode, String) {
@@ -51,20 +64,27 @@ fn id() -> String {
     format!("{:032x}", rand::rng().random::<u128>())
 }
 fn user(headers: &HeaderMap, inner: &Inner) -> Result<User, (StatusCode, String)> {
+    session_key(headers)
+        .and_then(|k| inner.sessions.get(k))
+        .filter(|s| s.expires > Instant::now())
+        .map(|s| s.user.clone())
+        .ok_or((
+            StatusCode::UNAUTHORIZED,
+            "Session expirée ou absente. Reconnectez-vous.".into(),
+        ))
+}
+fn session_key(headers: &HeaderMap) -> Option<&str> {
     let cookie = headers
         .get(header::COOKIE)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    let key = cookie
+    cookie
         .split(';')
         .map(str::trim)
-        .find_map(|p| p.strip_prefix("rusty_session="));
-    key.and_then(|k| inner.sessions.get(k)).cloned().ok_or((
-        StatusCode::UNAUTHORIZED,
-        "Connectez-vous pour rejoindre la table".into(),
-    ))
+        .find_map(|p| p.strip_prefix("rusty_session="))
 }
 fn snapshot(w: &Value, u: &User, revision: u64) -> Value {
+    let source = w;
     let mut w = w.clone();
     chat::project(&mut w, u);
     if u.role != "gm" {
@@ -106,6 +126,32 @@ fn snapshot(w: &Value, u: &User, revision: u64) -> Value {
         }
     }
     scene_tools::project(&mut w, u);
+    if u.role != "gm" {
+        // Remove combat references to tokens absent after fog/vision projection.
+        let token_ids = |world: &Value| -> Vec<Value> {
+            world["scenes"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .flat_map(|s| s["tokens"].as_array().into_iter().flatten())
+                .map(|t| t["id"].clone())
+                .collect()
+        };
+        let all = token_ids(source);
+        let shown = token_ids(&w);
+        let original = w["combat"]["order"].as_array().cloned().unwrap_or_default();
+        let current = w["combat"]["turn"].as_u64().unwrap_or(0) as usize;
+        let visible = |entry: &&Value| !all.contains(&entry["id"]) || shown.contains(&entry["id"]);
+        let order: Vec<Value> = original.iter().filter(visible).cloned().collect();
+        let next = (0..original.len())
+            .map(|n| &original[(current + n) % original.len()])
+            .find(|entry| visible(entry));
+        let turn = next
+            .and_then(|entry| order.iter().position(|v| v == entry))
+            .unwrap_or(0);
+        w["combat"]["order"] = json!(order);
+        w["combat"]["turn"] = json!(turn);
+    }
     let installed_modules = modules::manifest(&w, u);
     json!({"world":w,"user":u,"revision":revision,"installed_modules":installed_modules})
 }
@@ -182,35 +228,113 @@ async fn builder_js() -> impl IntoResponse {
 }
 async fn login(
     State(app): State<App>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Json(v): Json<Value>,
 ) -> Result<Response, (StatusCode, String)> {
     let name = v["name"].as_str().unwrap_or("").trim();
     if name.is_empty() || name.len() > 60 {
         return Err(bad("Nom requis (60 caractères maximum)"));
     }
+    let mut inner = app.inner.lock().await;
+    inner.sessions.retain(|_, s| s.expires > Instant::now());
+    inner.logins.retain(|_, w| !w.expired());
+    if inner.logins.len() >= 1024 && !inner.logins.contains_key(&peer.ip()) {
+        return Err(security::throttled());
+    }
+    if !inner
+        .logins
+        .entry(peer.ip())
+        .or_insert_with(security::Window::new)
+        .allow(30)
+    {
+        return Err(security::throttled());
+    }
     let pw = v["password"].as_str().unwrap_or("");
-    let role = if pw.is_empty() {
-        "player"
-    } else if pw == app.gm_password.as_str() {
+    let role = if pw == app.gm_password.as_str() {
         "gm"
+    } else if app.players.get(name).is_some_and(|secret| secret == pw) {
+        "player"
     } else {
-        return Err((StatusCode::UNAUTHORIZED, "Mot de passe MJ incorrect".into()));
+        return Err((StatusCode::UNAUTHORIZED, "Nom ou secret incorrect".into()));
     };
     let u = User {
         name: name.into(),
         role: role.into(),
     };
+    // Rotate the current session only after credentials have been checked.
+    if let Some(key) = session_key(&headers) {
+        inner.sessions.remove(key);
+    }
+    if inner.sessions.len() >= security::MAX_SESSIONS
+        || inner
+            .sessions
+            .values()
+            .filter(|s| s.user.name == name)
+            .count()
+            >= security::MAX_USER_SESSIONS
+    {
+        return Err(security::throttled());
+    }
     let token = id();
-    let mut inner = app.inner.lock().await;
-    inner.sessions.insert(token.clone(), u.clone());
+    inner
+        .sessions
+        .insert(token.clone(), security::Session::new(u.clone()));
     Ok((
         [(
             header::SET_COOKIE,
-            format!("rusty_session={token}; HttpOnly; SameSite=Strict; Path=/"),
+            session_cookie(&token, app.secure_cookies, 8 * 60 * 60),
         )],
         Json(snapshot(&inner.world, &u, inner.revision)),
     )
         .into_response())
+}
+fn session_cookie(token: &str, secure: bool, age: u64) -> String {
+    format!(
+        "rusty_session={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age={age}{}",
+        if secure { "; Secure" } else { "" }
+    )
+}
+async fn transport(State(app): State<App>, request: Request, next: Next) -> Response {
+    let https = request
+        .headers()
+        .get("x-forwarded-proto")
+        .is_some_and(|v| v == "https");
+    // Only a local reverse proxy can reach this listener; never trust this header
+    // on a public bind. The proxy must overwrite it and redirect HTTP to HTTPS.
+    if app.secure_cookies && request.uri().path().starts_with("/api/") && !https {
+        return (
+            StatusCode::UPGRADE_REQUIRED,
+            "HTTPS requis via le proxy local",
+        )
+            .into_response();
+    }
+    let mut response = next.run(request).await;
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        header::HeaderValue::from_static("no-store"),
+    );
+    if app.secure_cookies && https {
+        response.headers_mut().insert(
+            header::STRICT_TRANSPORT_SECURITY,
+            header::HeaderValue::from_static("max-age=31536000"),
+        );
+    }
+    response
+}
+async fn logout(State(app): State<App>, headers: HeaderMap) -> Response {
+    let mut inner = app.inner.lock().await;
+    if let Some(key) = session_key(&headers) {
+        inner.sessions.remove(key);
+    }
+    (
+        [(
+            header::SET_COOKIE,
+            session_cookie("", app.secure_cookies, 0),
+        )],
+        Json(json!({"ok":true})),
+    )
+        .into_response()
 }
 async fn state(State(app): State<App>, headers: HeaderMap) -> ApiResult {
     let i = app.inner.lock().await;
@@ -227,6 +351,9 @@ async fn export(State(app): State<App>, headers: HeaderMap) -> ApiResult {
 }
 async fn persist(app: &App, w: &Value) -> Result<(), (StatusCode, String)> {
     let bytes = serde_json::to_vec_pretty(w).map_err(|_| bad("Sauvegarde invalide"))?;
+    if bytes.len() > 32 * 1024 * 1024 {
+        return Err(bad("Le monde dépasse la limite de 32 Mio"));
+    }
     let tmp = app.file.with_extension("tmp");
     tokio::fs::write(&tmp, bytes)
         .await
@@ -703,6 +830,15 @@ fn apply(w: &mut Value, u: &User, v: &Value) -> Result<(), (StatusCode, String)>
 async fn action(State(app): State<App>, headers: HeaderMap, Json(v): Json<Value>) -> ApiResult {
     let mut i = app.inner.lock().await;
     let u = user(&headers, &i)?;
+    if !i
+        .sessions
+        .get_mut(session_key(&headers).unwrap())
+        .unwrap()
+        .actions
+        .allow(120)
+    {
+        return Err(security::throttled());
+    }
     let mut next = i.world.clone();
     if !builder::apply(&mut next, &u, &v)? && !modules::apply(&mut next, &u, &v)? {
         apply(&mut next, &u, &v)?;
@@ -720,13 +856,37 @@ async fn event_stream(
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let i = app.inner.lock().await;
     user(&headers, &i)?;
+    let session_permit = i
+        .sessions
+        .get(session_key(&headers).unwrap())
+        .unwrap()
+        .streams
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| security::throttled())?;
+    let permit = app
+        .streams
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| security::throttled())?;
     let rx = app.events.subscribe();
     drop(i);
-    let stream = BroadcastStream::new(rx).map(|r| {
+    let stream = BroadcastStream::new(rx).map(move |r| {
+        let _hold_permit = &permit;
+        let _hold_session_permit = &session_permit;
         Ok::<_, Infallible>(
             Event::default().data(r.map(|n| n.to_string()).unwrap_or("resync".into())),
         )
     });
+    let end = async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            if user(&headers, &*app.inner.lock().await).is_err() {
+                break;
+            }
+        }
+    };
+    let stream = futures_util::StreamExt::take_until(stream, end);
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 #[tokio::main]
@@ -748,17 +908,41 @@ async fn main() {
         Err(e) => panic!("Lecture sauvegarde : {e}"),
     };
     let (events, _) = broadcast::channel(64);
-    let password = std::env::var("RUSTY_GM_PASSWORD").unwrap_or("rusty-gm".into());
-    assert!(!password.is_empty(), "Mot de passe MJ vide interdit");
+    let password = std::env::var("RUSTY_GM_PASSWORD").unwrap_or_else(|_| {
+        let generated = id();
+        println!("Secret MJ généré pour cette exécution : {generated}");
+        generated
+    });
+    assert!(
+        password.len() >= 16,
+        "Le secret MJ doit avoir au moins 16 octets"
+    );
+    let players = security::players(
+        &std::env::var("RUSTY_PLAYERS_JSON").unwrap_or("{}".into()),
+        &password,
+    )
+    .expect("Configuration des joueurs invalide");
+    let addr =
+        security::bind_address(&std::env::var("RUSTY_BIND").unwrap_or("127.0.0.1:3000".into()))
+            .expect("Adresse HTTP non sécurisée");
+    let secure_cookies = match std::env::var("RUSTY_HTTPS").as_deref() {
+        Ok("1") => true,
+        Err(std::env::VarError::NotPresent) | Ok("0") => false,
+        _ => panic!("RUSTY_HTTPS doit valoir 0 ou 1"),
+    };
     let app = App {
         inner: Arc::new(Mutex::new(Inner {
             world,
             revision: 0,
             sessions: HashMap::new(),
+            logins: HashMap::new(),
         })),
         events,
         file,
         gm_password: Arc::new(password),
+        players: Arc::new(players),
+        secure_cookies,
+        streams: Arc::new(Semaphore::new(32)),
     };
     let router = Router::new()
         .route("/", get(index))
@@ -767,7 +951,8 @@ async fn main() {
         .route("/app.js", get(js))
         .route("/modules-ui.js", get(modules_js))
         .route("/builder-ui.js", get(builder_js))
-        .route("/api/login", post(login))
+        .route("/api/login", post(login).layer(DefaultBodyLimit::max(4096)))
+        .route("/api/logout", post(logout))
         .route("/api/state", get(state))
         .route("/api/action", post(action))
         .route("/api/events", get(event_stream))
@@ -779,18 +964,21 @@ async fn main() {
         .route("/api/builder/preview/{draft}", get(builder::preview))
         .route("/api/compendiums", get(modules::list_packs))
         .layer(DefaultBodyLimit::max(16 * 1024 * 1024))
+        .layer(middleware::from_fn_with_state(app.clone(), transport))
         .with_state(app);
-    let addr = std::env::var("RUSTY_BIND").unwrap_or("127.0.0.1:3000".into());
-    let listener = tokio::net::TcpListener::bind(&addr)
+    let listener = tokio::net::TcpListener::bind(addr)
         .await
         .expect("Adresse indisponible");
     println!("Rusty VTT — http://{addr} — Ctrl+C pour arrêter");
-    axum::serve(listener, router)
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
-        })
-        .await
-        .unwrap();
+    axum::serve(
+        listener,
+        router.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(async {
+        let _ = tokio::signal::ctrl_c().await;
+    })
+    .await
+    .unwrap();
 }
 
 #[cfg(test)]
@@ -801,6 +989,54 @@ mod tests {
             name: "Alice".into(),
             role: "player".into(),
         }
+    }
+    #[test]
+    fn expired_sessions_are_rejected_and_streams_bounded() {
+        let mut inner = Inner {
+            world: demo(),
+            revision: 0,
+            sessions: HashMap::new(),
+            logins: HashMap::new(),
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert(header::COOKIE, "rusty_session=test".parse().unwrap());
+        let mut session = security::Session::new(player());
+        let first = session.streams.clone().try_acquire_owned().unwrap();
+        let second = session.streams.clone().try_acquire_owned().unwrap();
+        assert!(session.streams.clone().try_acquire_owned().is_err());
+        drop((first, second));
+        assert!(session.streams.clone().try_acquire_owned().is_ok());
+        session.expires = Instant::now() - std::time::Duration::from_secs(1);
+        inner.sessions.insert("test".into(), session);
+        assert_eq!(
+            user(&headers, &inner).err().unwrap().0,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+    #[test]
+    fn combat_projection_remaps_turns_and_hides_vision_targets() {
+        let mut w = demo();
+        w["combat"]["order"] = json!([{"id":"wolf","name":"Secret","initiative":20},{"id":"hero","name":"Hero","initiative":10}]);
+        w["combat"]["turn"] = json!(0);
+        w["scenes"][0]["tokens"][1]["hidden"] = json!(true);
+        let view = snapshot(&w, &player(), 0);
+        assert_eq!(
+            view["world"]["combat"]["order"].as_array().unwrap().len(),
+            1
+        );
+        assert_eq!(view["world"]["combat"]["turn"], 0);
+        w["scenes"][0]["tokens"][1]["hidden"] = json!(false);
+        w["scenes"][0]["vision_enabled"] = json!(true);
+        w["scenes"][0]["tokens"][0]["vision_cells"] = json!(1);
+        assert!(
+            !snapshot(&w, &player(), 0)["world"]["combat"]["order"]
+                .to_string()
+                .contains("Secret")
+        );
+        w["scenes"][0]["tokens"][0]["hidden"] = json!(true);
+        let view = snapshot(&w, &player(), 0);
+        assert_eq!(view["world"]["combat"]["order"], json!([]));
+        assert_eq!(view["world"]["combat"]["turn"], 0);
     }
     #[test]
     fn dice_boundaries() {
