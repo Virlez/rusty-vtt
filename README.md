@@ -2,6 +2,12 @@
 
 Table de jeu de rôle virtuelle indépendante, en français. Le serveur, les dés, les permissions, les actions de jeu et la sauvegarde sont en **Rust**. Le navigateur utilise HTML/CSS et JavaScript pour afficher le canvas et transmettre les interactions. Aucun service hébergé ni compte Foundry n'est nécessaire.
 
+## Aperçu de l’interface
+
+![Interface de Rusty VTT : carte quadrillée avec pions, outils à gauche, chat et jets de dés à droite.](docs/qa-audit-ui.jpg)
+
+La table de jeu avec ses pions, ses outils de carte, le chat et la barre de raccourcis.
+
 ## Démarrer
 
 1. Installer Rust stable puis lancer **cargo run --locked** dans ce dossier.
