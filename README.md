@@ -10,12 +10,20 @@ La table de jeu avec ses pions, ses outils de carte, le chat et la barre de racc
 
 ## Démarrer
 
+### Installer l’alpha sur Windows
+
+Dans les [Releases](https://github.com/Virlez/rusty-vtt/releases), ouvrir la dernière **préversion alpha** et télécharger `Rusty-VTT-…-windows-x64-setup.exe` (Windows 10/11 64 bits). Installer puis lancer **Rusty VTT Alpha** depuis le menu Démarrer : le navigateur ouvre la table et la console affiche le secret MJ. Garder cette console ouverte pendant la partie ; **Ctrl+C** arrête le serveur. Aucun Rust ni Node.js n’est nécessaire.
+
+L’installateur alpha n’est pas signé numériquement ; Windows peut afficher un avertissement SmartScreen. Les sauvegardes sont dans `%LOCALAPPDATA%\Rusty VTT\data\world.json`, conservées lors des mises à jour et de la désinstallation. Exporter régulièrement ses mondes pendant cette alpha. L’accès à distance nécessite la configuration HTTPS et des secrets joueurs décrite plus bas.
+
+### Depuis les sources
+
 1. Installer Rust stable puis lancer **cargo run --locked** dans ce dossier.
 2. Ouvrir **http://127.0.0.1:3000** dans un navigateur.
 3. Choisir un nom et saisir le secret MJ affiché dans la console au démarrage, ou votre nom et votre secret joueur configurés par le meneur. Aucun accès joueur anonyme n'est accepté.
 4. Arrêter le serveur avec **Ctrl+C** dans sa console.
 
-Le serveur intègre l’interface à la compilation. Cette édition publique distribue les sources ; les sauvegardes locales sont exclues.
+Le serveur intègre l’interface à la compilation. Les sauvegardes locales sont exclues de la distribution.
 
 ## Jouer
 

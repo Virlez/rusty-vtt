@@ -1,0 +1,17 @@
+Rusty VTT - Alpha
+
+Version de test : des bugs et des changements de format sont possibles.
+Exportez regulierement vos mondes depuis le menu Monde.
+
+Windows 10/11 64 bits. Aucun compte, Rust ou Node.js requis.
+Lancez Rusty VTT depuis le menu Demarrer : une console affiche le secret MJ
+et le navigateur ouvre la table. Gardez la console ouverte pendant la partie.
+Arretez le serveur avec Ctrl+C dans cette console.
+
+Les sauvegardes sont dans %LOCALAPPDATA%\Rusty VTT\data.
+Les mises a jour et la desinstallation conservent ce dossier.
+Le secret MJ genere change a chaque lancement, sauf configuration personnelle.
+
+L'installation permet de jouer sur cet ordinateur. L'acces des autres joueurs
+necessite une configuration HTTPS et des secrets individuels : voir README.md.
+L'installateur alpha n'est pas signe numeriquement.

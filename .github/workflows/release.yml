@@ -1,0 +1,93 @@
+name: Windows alpha installer
+
+on:
+  push:
+    tags: ['v*-alpha.*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Validate version
+        shell: pwsh
+        run: |
+          $version = (Get-Content Cargo.toml | Select-String '^version = "([^"]+)"').Matches.Groups[1].Value
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            if ($env:GITHUB_REF_NAME -notmatch ('^v' + [regex]::Escape($version) + '-alpha\.[0-9]+$')) {
+              throw 'The alpha tag must match Cargo.toml: v<version>-alpha.<number>'
+            }
+            $version = $env:GITHUB_REF_NAME.Substring(1)
+          } else { $version += '-alpha.dev' }
+          "RELEASE_VERSION=$version" >> $env:GITHUB_ENV
+      - run: cargo test --locked
+      - run: cargo build --release --locked
+      - name: Test packaged server
+        shell: pwsh
+        run: |
+          $env:RUSTY_TEST_BINARY = 'target/release/rusty-vtt.exe'
+          node tests/run-integration.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $compiler = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $compiler)) { throw 'Inno Setup 6 is required on the Windows runner.' }
+          & $compiler "/DAppVersion=$env:RELEASE_VERSION" packaging/windows/installer.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify installation and uninstallation
+        shell: pwsh
+        run: |
+          $destination = Join-Path $env:RUNNER_TEMP 'Rusty VTT install test'
+          $setup = (Get-ChildItem dist/*-setup.exe).FullName
+          $process = Start-Process $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=`"$destination`"" -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw 'Installation failed' }
+          foreach ($file in @('rusty-vtt.exe', 'Launch-RustyVTT.ps1', 'LICENSE', 'THIRD_PARTY_NOTICES.md')) {
+            if (-not (Test-Path (Join-Path $destination $file))) { throw "Missing installed file: $file" }
+          }
+          $env:RUSTY_TEST_BINARY = Join-Path $destination 'rusty-vtt.exe'
+          node tests/run-integration.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $process = Start-Process (Join-Path $destination 'unins000.exe') -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw 'Uninstallation failed' }
+          if (Test-Path $env:RUSTY_TEST_BINARY) { throw 'Uninstallation left the executable behind' }
+      - name: Checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem dist/*.exe | ForEach-Object {
+            $hash = (Get-FileHash $_ -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
+          } | Set-Content dist/SHA256SUMS.txt -Encoding ascii
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rusty-vtt-windows-alpha
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    if: github.ref_type == 'tag'
+    needs: windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: rusty-vtt-windows-alpha
+          path: dist
+      - name: Publish alpha prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" dist/* --verify-tag --prerelease --latest=false --title "Rusty VTT $RELEASE_TAG (Alpha)" --notes-file packaging/windows/release-notes.md
