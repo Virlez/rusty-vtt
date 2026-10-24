@@ -631,18 +631,17 @@ fn assemble(w: &Value, d: &Value) -> Result<Value, Vec<String>> {
         }
     }
     let armor_id = data["equipped_armor"].as_str().unwrap_or("");
-    if !armor_id.is_empty() {
-        if let Some(item) = lookup("equipment", armor_id) {
-            if inventory.iter().any(|i| i["id"] == armor_id) {
-                ac = match item["formula"].as_str().unwrap_or("") {
-                    "11+dex" => 11 + dex,
-                    "12+dex" => 12 + dex,
-                    "13+dex2" => 13 + dex.min(2),
-                    "16" => 16,
-                    _ => ac,
-                };
-            }
-        }
+    if !armor_id.is_empty()
+        && let Some(item) = lookup("equipment", armor_id)
+        && inventory.iter().any(|i| i["id"] == armor_id)
+    {
+        ac = match item["formula"].as_str().unwrap_or("") {
+            "11+dex" => 11 + dex,
+            "12+dex" => 12 + dex,
+            "13+dex2" => 13 + dex.min(2),
+            "16" => 16,
+            _ => ac,
+        };
     }
     if data["shield"] == true && inventory.iter().any(|i| i["id"] == "bouclier") {
         ac += 2;

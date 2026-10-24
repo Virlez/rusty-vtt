@@ -4,7 +4,9 @@ use super::*;
 pub fn validate(w: &Value) -> Result<(), (StatusCode, String)> {
     for actor in w["actors"].as_array().ok_or(bad("Personnages invalides"))? {
         if let Some(value) = actor.get("effects") {
-            if value.is_null() { continue; }
+            if value.is_null() {
+                continue;
+            }
             let list = value.as_array().ok_or(bad("Liste d’états invalide"))?;
             if list.len() > 50 {
                 return Err(bad("Maximum de 50 états par personnage"));

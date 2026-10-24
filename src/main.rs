@@ -93,8 +93,8 @@ fn snapshot(w: &Value, u: &User, revision: u64) -> Value {
                         actor.as_object_mut().unwrap().remove("foundry");
                         actor["items"] = json!([]);
                     }
-                    if actor.get("dnd5e").is_some() {
-                        actor["dnd5e"].as_object_mut().unwrap().remove("build");
+                    if let Some(dnd5e) = actor["dnd5e"].as_object_mut() {
+                        dnd5e.remove("build");
                     }
                 }
             }
@@ -237,37 +237,34 @@ async fn persist(app: &App, w: &Value) -> Result<(), (StatusCode, String)> {
 }
 fn validate_world(w: &Value) -> Result<(), (StatusCode, String)> {
     effects::validate(w)?;
-    if let Some(m) = w.get("modules") {
-        if !m.is_object()
+    if let Some(m) = w.get("modules")
+        && (!m.is_object()
             || m.as_object()
                 .unwrap()
                 .values()
-                .any(|v| !v["enabled"].is_boolean())
-        {
-            return Err(bad("Configuration des modules invalide"));
-        }
+                .any(|v| !v["enabled"].is_boolean()))
+    {
+        return Err(bad("Configuration des modules invalide"));
     }
-    if let Some(t) = w.get("tables") {
-        if !t.is_array()
+    if let Some(t) = w.get("tables")
+        && (!t.is_array()
             || t.as_array()
                 .unwrap()
                 .iter()
-                .any(|d| !d.is_object() || !d["id"].is_string())
-        {
-            return Err(bad("Tables invalides"));
-        }
+                .any(|d| !d.is_object() || !d["id"].is_string()))
+    {
+        return Err(bad("Tables invalides"));
     }
-    if let Some(d) = w.get("builder_drafts") {
-        if !d.is_array()
+    if let Some(d) = w.get("builder_drafts")
+        && (!d.is_array()
             || d.as_array().unwrap().iter().any(|x| {
                 !x.is_object()
                     || !x["id"].is_string()
                     || !x["owner"].is_string()
                     || !x["data"].is_object()
-            })
-        {
-            return Err(bad("Brouillons de personnage invalides"));
-        }
+            }))
+    {
+        return Err(bad("Brouillons de personnage invalides"));
     }
     if !w["name"].is_string() || !w["active_scene"].is_string() {
         return Err(bad("Monde invalide"));
@@ -295,6 +292,14 @@ fn validate_world(w: &Value) -> Result<(), (StatusCode, String)> {
     {
         return Err(bad("Scène active absente"));
     }
+    for actor in w["actors"].as_array().unwrap() {
+        if actor.get("dnd5e").is_some_and(|d| !d.is_object()) {
+            return Err(bad("Données 5e invalides"));
+        }
+        if actor.get("max_hp").is_some() {
+            max_hp(actor)?;
+        }
+    }
     for s in w["scenes"].as_array().unwrap() {
         scene_tools::validate(s)?;
         num(s, "width", 200., 10000.)?;
@@ -313,6 +318,14 @@ fn validate_world(w: &Value) -> Result<(), (StatusCode, String)> {
             text(t, "name", 100)?;
             num(t, "x", 0., 10000.)?;
             num(t, "y", 0., 10000.)?;
+            for key in ["owner", "color"] {
+                if t.get(key).is_some_and(|value| !value.is_string()) {
+                    return Err(bad("Texte de pion invalide"));
+                }
+            }
+            if t.get("hidden").is_some_and(|value| !value.is_boolean()) {
+                return Err(bad("Visibilité de pion invalide"));
+            }
         }
         if !s["grid"]
             .as_f64()
@@ -448,6 +461,13 @@ fn num(v: &Value, key: &str, min: f64, max: f64) -> Result<f64, (StatusCode, Str
     }
     Ok(n)
 }
+fn max_hp(v: &Value) -> Result<i64, (StatusCode, String)> {
+    let value = num(v, "max_hp", 1., 10000.)?;
+    if value.fract() != 0. {
+        return Err(bad("Le maximum de PV doit être entier"));
+    }
+    Ok(value as i64)
+}
 fn owned(u: &User, v: &Value) -> bool {
     u.role == "gm" || v["owner"] == u.name || v["owner"] == ""
 }
@@ -524,7 +544,7 @@ fn apply(w: &mut Value, u: &User, v: &Value) -> Result<(), (StatusCode, String)>
         }
         "update_token" => {
             let t = find(scene(w)?["tokens"].as_array_mut().unwrap(), &v["id"])?;
-            if !owned(u, t) {
+            if !owned(u, t) || t["hidden"] == true && u.role != "gm" {
                 return Err(forbidden());
             }
             if v.get("hp").is_some() {
@@ -533,6 +553,18 @@ fn apply(w: &mut Value, u: &User, v: &Value) -> Result<(), (StatusCode, String)>
             if u.role == "gm" {
                 for k in ["name", "owner", "color", "hidden"] {
                     if let Some(val) = v.get(k) {
+                        match k {
+                            "name" => {
+                                text(v, k, 100)?;
+                            }
+                            "hidden" if !val.is_boolean() => {
+                                return Err(bad("Visibilité de pion invalide"));
+                            }
+                            "owner" | "color" if !val.is_string() => {
+                                return Err(bad("Texte de pion invalide"));
+                            }
+                            _ => {}
+                        }
                         t[k] = val.clone();
                     }
                 }
@@ -562,15 +594,18 @@ fn apply(w: &mut Value, u: &User, v: &Value) -> Result<(), (StatusCode, String)>
                     a[k] = val.clone();
                 }
             }
-            for k in ["hp", "max_hp", "armor", "initiative"] {
+            if v.get("max_hp").is_some() {
+                a["max_hp"] = json!(max_hp(v)?);
+            }
+            for k in ["hp", "armor", "initiative"] {
                 if v.get(k).is_some() {
                     a[k] = json!(num(v, k, -10000., 10000.)?);
                 }
             }
-            if u.role == "gm" {
-                if let Some(o) = v.get("owner") {
-                    a["owner"] = o.clone();
-                }
+            if u.role == "gm"
+                && let Some(o) = v.get("owner")
+            {
+                a["owner"] = o.clone();
             }
         }
         "add_journal" => {
@@ -669,11 +704,10 @@ async fn action(State(app): State<App>, headers: HeaderMap, Json(v): Json<Value>
     let mut i = app.inner.lock().await;
     let u = user(&headers, &i)?;
     let mut next = i.world.clone();
-    if !builder::apply(&mut next, &u, &v)?
-        && !modules::apply(&mut next, &u, &v)?
-    {
+    if !builder::apply(&mut next, &u, &v)? && !modules::apply(&mut next, &u, &v)? {
         apply(&mut next, &u, &v)?;
     }
+    validate_world(&next)?;
     persist(&app, &next).await?;
     i.world = next;
     i.revision += 1;
@@ -811,6 +845,25 @@ mod tests {
             1
         );
         assert_eq!(s["world"]["journals"].as_array().unwrap().len(), 1);
+    }
+    #[test]
+    fn malformed_5e_projection_is_defensive() {
+        let mut w = demo();
+        w["actors"][0]["owner"] = json!("MJ");
+        for value in [json!(42), json!(null), json!([])] {
+            w["actors"][0]["dnd5e"] = value;
+            assert!(validate_world(&w).is_err());
+            let projected = snapshot(&w, &player(), 0);
+            assert_eq!(projected["world"]["actors"][0]["notes"], "");
+        }
+        w["actors"][0]["dnd5e"] = json!({"build":{"secret":true},"level":1});
+        let projected = snapshot(&w, &player(), 0);
+        assert!(
+            projected["world"]["actors"][0]["dnd5e"]
+                .get("build")
+                .is_none()
+        );
+        assert_eq!(projected["world"]["actors"][0]["dnd5e"]["level"], 1);
     }
     #[test]
     fn combat_rounds() {
