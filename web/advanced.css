@@ -1,0 +1,9 @@
+dialog.advanced-window,dialog.effect-manager{z-index:16;width:640px;max-width:94vw;max-height:88vh}
+.advanced-window .module-window-body{padding:8px;max-height:calc(80vh - 40px);overflow:auto}
+.advanced-row{display:flex;align-items:end;gap:12px;margin:8px 0}.advanced-row label{flex:1}
+.advanced-check{display:flex!important;gap:8px;align-items:center}.advanced-check input{width:auto}
+.advanced-window button{padding:6px 10px;border:1px solid #9a8669;margin:5px}
+#chat-visibility{width:145px;padding:3px;font-size:11px}#chat-recipients{width:calc(100% - 12px);margin:5px 6px;box-sizing:border-box}
+.entry-header small{margin-left:auto;font-size:10px;color:#705132}
+dialog{z-index:14}#toast{z-index:30}
+#modal{z-index:25}
