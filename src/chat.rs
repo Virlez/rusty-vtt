@@ -77,6 +77,47 @@ pub fn project(w: &mut Value, u: &User) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn history_evicts_oldest_and_normalizes_recipients() {
+        let mut w = json!({"messages": (0..500).map(|i| json!({"text":i})).collect::<Vec<_>>()});
+        apply(
+            &mut w,
+            &user("Alice", "player"),
+            &json!({
+                "kind":"chat", "text":"new", "mode":"whisper", "recipients":[" Bob ","Bob"]
+            }),
+        )
+        .unwrap();
+        let messages = w["messages"].as_array().unwrap();
+        assert_eq!(messages.len(), 500);
+        assert_eq!(messages[0]["text"], 1);
+        assert_eq!(messages[499]["recipients"], json!(["Bob"]));
+    }
+
+    #[test]
+    fn invalid_recipients_leave_history_unchanged() {
+        let original = json!({"messages":[]});
+        for recipients in [
+            json!(null),
+            json!([42]),
+            json!([""]),
+            json!([" "]),
+            json!(vec!["Bob"; 21]),
+        ] {
+            let mut world = original.clone();
+            assert!(
+                apply(
+                    &mut world,
+                    &user("Alice", "player"),
+                    &json!({
+                        "kind":"chat", "text":"secret", "mode":"whisper", "recipients":recipients
+                    })
+                )
+                .is_err()
+            );
+            assert_eq!(world, original);
+        }
+    }
     fn user(name: &str, role: &str) -> User {
         User {
             name: name.into(),
