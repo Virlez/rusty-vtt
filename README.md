@@ -2,6 +2,10 @@
 
 Table de jeu de rôle virtuelle indépendante, en français. Le serveur, les dés, les permissions, les actions de jeu et la sauvegarde sont en **Rust**. Le navigateur utilise HTML/CSS et JavaScript pour afficher le canvas et transmettre les interactions. Aucun service hébergé ni compte Foundry n'est nécessaire.
 
+## Pourquoi Rusty VTT ?
+
+Rusty VTT est un proof of concept (POC) né d’une expérimentation de rétro-ingénierie avec REA : comprendre le fonctionnement d’une table virtuelle pour explorer la création d’un VTT indépendant en Rust, avec un objectif de légèreté. Le projet sert à confronter cette démarche à des fonctions concrètes de jeu et à leur validation.
+
 ## Aperçu de l’interface
 
 ![Interface de Rusty VTT : carte quadrillée avec pions, outils à gauche, chat et jets de dés à droite.](docs/qa-audit-ui.jpg)
