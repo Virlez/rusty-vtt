@@ -1,0 +1,8 @@
+/target/
+/data/
+/vendor/
+*.log
+*.exe
+*.pdb
+.env
+.env.*
