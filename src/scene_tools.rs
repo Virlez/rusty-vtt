@@ -292,6 +292,55 @@ pub fn apply(w: &mut Value, u: &User, v: &Value) -> Result<bool, (StatusCode, St
 mod tests {
     use super::*;
     #[test]
+    fn wall_flags_door_states_and_collision_matrix() {
+        let player = User {
+            name: "Alice".into(),
+            role: "player".into(),
+        };
+        let gm = User {
+            name: "MJ".into(),
+            role: "gm".into(),
+        };
+        for door in [false, true] {
+            for state in ["open", "closed", "locked"] {
+                for flag in [json!(null), json!(false), json!(true)] {
+                    let wall = json!({"x1":20,"y1":0,"x2":20,"y2":40,
+                        "door":door,"state":state,"blocks_move":flag,"blocks_sight":flag});
+                    let expected = !(door && state == "open") && flag != false;
+                    assert_eq!(blocks(&wall, "blocks_move"), expected);
+                    assert_eq!(blocks(&wall, "blocks_sight"), expected);
+                    for collision in [false, true] {
+                        let scene = json!({"walls":[wall],"collision":collision});
+                        let token = json!({"x":10,"y":20});
+                        assert_eq!(
+                            check_move(&scene, &token, (30., 20.), &player).is_err(),
+                            collision && expected
+                        );
+                        assert!(check_move(&scene, &token, (30., 20.), &gm).is_ok());
+                        assert!(check_move(&scene, &token, (15., 20.), &player).is_ok());
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn sight_radius_edges_and_wall_occlusion() {
+        let mut scene = json!({"grid":10,"walls":[]});
+        let sources = [json!({"x":30,"y":40,"vision_cells":2})];
+        for point in [(50., 40.), (10., 40.), (30., 60.), (30., 20.), (30., 40.)] {
+            assert!(visible(&scene, &sources, point), "{point:?}");
+        }
+        for point in [(50.01, 40.), (9.99, 40.), (30., 60.01), (30., 19.99)] {
+            assert!(!visible(&scene, &sources, point), "{point:?}");
+        }
+        assert!(!visible(&scene, &[], (30., 40.)));
+        scene["walls"] = json!([{"x1":40,"y1":0,"x2":40,"y2":100}]);
+        assert!(!visible(&scene, &sources, (50., 40.)));
+        assert!(visible(&scene, &sources, (35., 40.)));
+    }
+
+    #[test]
     fn intersections() {
         assert!(hit((0., 0.), (10., 0.), (5., -5.), (5., 5.)).is_some());
         assert!(hit((0., 0.), (10., 0.), (4., 0.), (8., 0.)).is_some());
