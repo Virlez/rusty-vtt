@@ -10,3 +10,5 @@
 /playwright-report/
 /test-results/
 /mutants.out*/
+
+/coverage/

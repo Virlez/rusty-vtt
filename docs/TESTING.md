@@ -7,7 +7,7 @@ Prérequis : Rust stable, Node 24+, puis `npm ci` et `npx playwright install --w
 | Niveau | Commande | Couverture |
 | --- | --- | --- |
 | Unitaire et règles métier Rust | `npm run test:unit` | Dés, projections privées, combat, états, géométrie, créateur 5e, configuration et quotas ; neuf propriétés générées |
-| Intégration HTTP réelle | `npm run test:integration` | Sept suites : smoke, builder, advanced, QA, sécurité, confidentialité et persistance |
+| Intégration HTTP réelle | `npm run test:integration` | Neuf suites : smoke, builder, advanced, QA, sécurité, confidentialité, persistance, régressions 5e et grands mondes |
 | E2E Chromium, Firefox et WebKit | `npm run test:e2e` | Sessions, deux clients SSE, dés publics/privés, fiches et initiative, journal, objets, ambiance, canvas, raccourcis, scènes, import/export et brouillons 5e |
 
 Les E2E utilisent le vrai binaire Rust et les vrais échanges HTTP/SSE, sans simuler le backend. Chaque test démarre son serveur sur un port attribué par le système et un monde temporaire supprimé après le test. Les sessions MJ et joueur ont des contextes navigateur distincts. Les suites HTTP historiques utilisent leurs ports dédiés et sont exécutées séquentiellement. Aucun test ne lit `data/world.json` de votre campagne.
@@ -16,7 +16,7 @@ Les E2E utilisent le vrai binaire Rust et les vrais échanges HTTP/SSE, sans sim
 
 Pour travailler sur les E2E : `npm run test:e2e:ui`, ou `npx playwright test --grep "journal"`. Le mode UI suppose le binaire déjà compilé. Consulter les diagnostics avec `npm run test:e2e:report` ; captures et traces sont conservées sur échec. La CI installe les trois moteurs et leurs dépendances système, puis exécute `npm test`, puis publie les diagnostics en cas d'échec.
 
-La suite exécute les mêmes 11 scénarios sur Chromium, Firefox et WebKit, soit 33 tests. WebKit vérifie le moteur utilisé par Safari, sans certifier Safari sur macOS/iOS. Les comparaisons visuelles, la lecture audio effective, la création 5e exhaustive et les gestes tactiles restent à compléter. Les règles détaillées du créateur, des portes, des collisions et des états sont surtout vérifiées dans les couches Rust et HTTP pour conserver une suite E2E rapide.
+La suite exécute les mêmes 13 scénarios sur Chromium, Firefox et WebKit, soit 39 tests. WebKit vérifie le moteur utilisé par Safari, sans certifier Safari sur macOS/iOS. Les comparaisons visuelles, la lecture audio effective, la création 5e exhaustive et les gestes tactiles restent à compléter. Les règles détaillées du créateur, des portes, des collisions et des états sont surtout vérifiées dans les couches Rust et HTTP pour conserver une suite E2E rapide.
 
 ## E2E multi-navigateur
 
@@ -175,3 +175,66 @@ les comportements, puis relancer la campagne. Une éventuelle exclusion doit
 identifier précisément un mutant équivalent et expliquer pourquoi aucune entrée
 valide ne permet de le distinguer ; ne pas exclure une fonction pour faire monter
 le score.
+
+## Contrôles qualité et couverture en CI
+
+`npm run check` exécute ESLint et Prettier sur les scripts web, tests, outils et
+configurations JavaScript. `npm run format` applique le formatage. Les scripts web
+historiques partagent encore des variables globales : les règles `no-undef` et
+`no-unused-vars` y sont désactivées, contrairement aux tests et outils. Les autres
+règles recommandées et l'interdiction d'`eval` restent actives. Le passage à des
+imports explicites pourra lever cette exception ; aucun framework n'est requis.
+
+La CI exécute également `cargo clippy --locked --all-targets -- -D warnings`.
+Les clones signalés dans les tests par propriétés sont corrigés. Le code JavaScript
+existant a été formaté pour permettre une revue et des modifications plus lisibles.
+
+Pour produire le même rapport de couverture Rust que la CI :
+
+```sh
+rustup component add llvm-tools-preview
+cargo install cargo-llvm-cov --version 0.9.1 --locked
+npm run test:coverage
+```
+
+`coverage/lcov.info` contient le rapport LLVM brut. `coverage/summary.md` et le
+résumé GitHub Actions comptent seulement les lignes applicatives instrumentées,
+en excluant les modules de tests internes et les fichiers de tests génératifs et
+du créateur. L'artefact `rust-coverage` est conservé sept jours. Il s'agit de la
+couverture **unitaire Rust**, sans les suites HTTP/E2E, les branches ni le JavaScript.
+Aucun seuil arbitraire ne transforme cette mesure en garantie de qualité.
+
+## Régressions 5e, désynchronisation et clavier
+
+`tests/builder-regressions.mjs` construit une fiche réelle, refuse des imports aux
+structures internes incohérentes et vérifie que ni la révision ni le fichier ne
+changent. La validation couvre le build, les classes et niveaux, les dés de vie,
+les caractéristiques, la configuration et les métadonnées utilisées par les actions
+5e. Une fiche 5e incomplète est refusée au lieu d'être réparée implicitement.
+Les commandes de progression et de repos vérifient aussi les données avant de
+les utiliser. Les nombres extrêmes d'un brouillon donnent des erreurs métier,
+sans débordement arithmétique.
+
+`src/builder_tests.rs` teste les douze classes avec des PV et armures attendus
+explicitement, les listes de sorts du magicien, le multiclassage et ses prérequis,
+le budget d'équipement, la progression et l'amélioration de caractéristique au
+niveau 4, avec conservation de l'inventaire et de l'argent.
+
+Les deux scénarios de `resilience.spec.js` s'exécutent sur les trois moteurs :
+une ancienne réponse `/api/state` est retardée et livrée après un état plus récent
+pour vérifier l'absence de retour en arrière ; un formulaire est ouvert, parcouru,
+enregistré et fermé au clavier. Les dialogues principaux utilisent `showModal`,
+placent le focus sur le premier champ et contiennent la navigation par Tab.
+Ces tests ne constituent pas un audit complet WCAG ou lecteur d'écran.
+
+## Mondes volumineux
+
+`tests/large-world.mjs` importe successivement 1 000 et 10 000 personnages (environ
+0,45 et 4,5 Mo). Il vérifie les projections privées, huit écritures concurrentes,
+les révisions et la cohérence disque/mémoire. Les requêtes ont une limite de 30 s
+pour distinguer les blocages des variations de vitesse des runners. La médiane
+et le p95 du petit échantillon de lectures/actions sont imprimés à titre indicatif ;
+ils ne constituent ni un SLA ni un benchmark de capacité. Les mondes sont isolés
+et supprimés. La suite est incluse dans `npm test` et reste bornée à 120 s.
+Le verrou global et la sauvegarde complète restent en place : toute optimisation
+future devra être comparée à ces mesures, sans affaiblir les invariants de persistance.

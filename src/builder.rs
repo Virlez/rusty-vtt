@@ -86,7 +86,7 @@ fn list(v: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 fn modifier(n: i64) -> i64 {
-    (n - 10).div_euclid(2)
+    n.saturating_sub(10).div_euclid(2)
 }
 fn integer(v: &Value, default: i64) -> i64 {
     v.as_i64()
@@ -200,7 +200,7 @@ fn assemble(w: &Value, d: &Value) -> Result<Value, Vec<String>> {
             );
         }
         boosts.push(b);
-        scores[key] = json!(n + b);
+        scores[key] = json!(n.saturating_add(b));
     }
     let mut boost_pattern = boosts.clone();
     boost_pattern.retain(|n| *n > 0);
@@ -281,21 +281,24 @@ fn assemble(w: &Value, d: &Value) -> Result<Value, Vec<String>> {
             || (cid == "guerrier" && [6, 14].contains(&new_class_level))
             || (cid == "roublard" && new_class_level == 10));
     if asi {
-        let mut total = 0;
+        let mut total = 0i64;
         for k in ABILITIES {
             let n = data["asi"][k].as_i64().unwrap_or(0);
             if !(0..=2).contains(&n) {
                 errors.push("L’amélioration accorde deux points au total.".into());
             }
-            total += n;
-            improvements[k] = json!(improvements[k].as_i64().unwrap_or(0) + n);
+            total = total.saturating_add(n);
+            improvements[k] = json!(improvements[k].as_i64().unwrap_or(0).saturating_add(n));
         }
         if total != 2 {
             errors.push("Répartissez les deux points d’amélioration de caractéristique.".into());
         }
     }
     for k in ABILITIES {
-        let n = scores[k].as_i64().unwrap_or(10) + improvements[k].as_i64().unwrap_or(0);
+        let n = scores[k]
+            .as_i64()
+            .unwrap_or(10)
+            .saturating_add(improvements[k].as_i64().unwrap_or(0));
         if n > 20 {
             errors.push("Une caractéristique ne peut pas dépasser 20.".into());
         }
@@ -871,6 +874,7 @@ pub fn apply(w: &mut Value, u: &User, v: &Value) -> Result<bool, (StatusCode, St
             {
                 return Err(bad("Un brouillon de progression existe déjà"));
             }
+            builder_validation::actor(&a)?;
             let mut data = a["dnd5e"]["build"].clone();
             data["notes"] = a["notes"].clone();
             data["asi"] = json!({});
@@ -973,6 +977,7 @@ pub fn apply(w: &mut Value, u: &User, v: &Value) -> Result<bool, (StatusCode, St
             if !owned(u, a) || a["system_id"] != "dnd5e" {
                 return Err(forbidden());
             }
+            builder_validation::actor(a)?;
             let long = v["rest"] == "long";
             if !long && v["rest"] != "short" {
                 return Err(bad("Repos inconnu"));
@@ -1054,3 +1059,7 @@ mod tests {
         assert!(apply(&mut w, &p, &cmd).is_err());
     }
 }
+
+#[cfg(test)]
+#[path = "builder_tests.rs"]
+mod extended_tests;

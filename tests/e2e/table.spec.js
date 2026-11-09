@@ -1,7 +1,10 @@
 import { test, expect } from '../fixtures/table.js';
 
 test.describe('Sessions et synchronisation', () => {
-  test('connexion refusée, session conservée au rechargement et déconnexion', async ({ table, page }) => {
+  test('connexion refusée, session conservée au rechargement et déconnexion', async ({
+    table,
+    page,
+  }) => {
     await page.goto(table.url);
     await page.getByLabel('Votre nom configuré par le meneur').fill('Alice');
     await page.getByLabel('Votre secret personnel ou le secret du meneur').fill('incorrect');
@@ -17,7 +20,8 @@ test.describe('Sessions et synchronisation', () => {
   });
 
   test('chat et dés synchronisés entre deux sessions sans rechargement', async ({ table }) => {
-    const gm = await table.open(), player = await table.open('player');
+    const gm = await table.open(),
+      player = await table.open('player');
     await player.chat('Bonjour la table <script>');
     await expect(gm.panel.getByText('Bonjour la table <script>', { exact: true })).toBeVisible();
     await player.chat('/r 2d6+3');
@@ -33,15 +37,26 @@ test.describe('Sessions et synchronisation', () => {
 
 test.describe('Documents et rencontre', () => {
   test('création, édition par le propriétaire, recherche et initiative', async ({ table }) => {
-    const gm = await table.open(), player = await table.open('player');
+    const gm = await table.open(),
+      player = await table.open('player');
     await gm.tab('Personnages');
-    await gm.create({ Nom: 'Sentinelle E2E', 'Nom du joueur propriétaire': 'Alice', 'Points de vie': 25 });
+    await gm.create({
+      Nom: 'Sentinelle E2E',
+      'Nom du joueur propriétaire': 'Alice',
+      'Points de vie': 25,
+    });
     await player.tab('Personnages');
-    const card = player.panel.locator('.card').filter({ has: player.page.getByRole('heading', { name: 'Sentinelle E2E', exact: true }) });
+    const card = player.panel
+      .locator('.card')
+      .filter({ has: player.page.getByRole('heading', { name: 'Sentinelle E2E', exact: true }) });
     await card.getByRole('button', { name: 'Ouvrir la fiche' }).click();
     await player.modal.getByLabel('Points de vie', { exact: true }).fill('17');
     await player.save();
-    await expect(gm.panel.locator('.card').filter({ has: gm.page.getByRole('heading', { name: 'Sentinelle E2E', exact: true }) })).toContainText('17 / 20 PV');
+    await expect(
+      gm.panel
+        .locator('.card')
+        .filter({ has: gm.page.getByRole('heading', { name: 'Sentinelle E2E', exact: true }) }),
+    ).toContainText('17 / 20 PV');
     await gm.page.getByRole('searchbox').fill('absent');
     await expect(gm.panel.getByRole('heading', { name: 'Sentinelle E2E' })).not.toBeVisible();
     await gm.page.getByRole('searchbox').fill('Sentinelle');
@@ -54,10 +69,15 @@ test.describe('Documents et rencontre', () => {
   });
 
   test('journal public et privé, objets et ambiance', async ({ table }) => {
-    const gm = await table.open(), player = await table.open('player');
+    const gm = await table.open(),
+      player = await table.open('player');
     await gm.tab('Journal');
     await gm.create({ Titre: 'Récit public', 'Votre récit': 'La quête commence.' });
-    await gm.create({ Titre: 'Secret E2E', 'Votre récit': 'Le trésor caché', 'Visible par les joueurs': false });
+    await gm.create({
+      Titre: 'Secret E2E',
+      'Votre récit': 'Le trésor caché',
+      'Visible par les joueurs': false,
+    });
     await player.tab('Journal');
     await expect(player.panel).toContainText('Récit public');
     await expect(player.panel).not.toContainText('Secret E2E');
@@ -67,8 +87,14 @@ test.describe('Documents et rencontre', () => {
     await player.tab('Objets');
     await expect(player.panel).toContainText('Une lame ancienne');
     await gm.tab('Ambiance');
-    await gm.create({ Titre: 'Forêt E2E', 'URL du fichier audio': 'https://example.com/forest.ogg' });
-    await expect(gm.panel.locator('audio').last()).toHaveAttribute('src', 'https://example.com/forest.ogg');
+    await gm.create({
+      Titre: 'Forêt E2E',
+      'URL du fichier audio': 'https://example.com/forest.ogg',
+    });
+    await expect(gm.panel.locator('audio').last()).toHaveAttribute(
+      'src',
+      'https://example.com/forest.ogg',
+    );
   });
 });
 
@@ -80,7 +106,11 @@ test.describe('Scènes, sauvegarde et modules', () => {
     await canvas.click({ position: { x: 350, y: 300 } });
     await gm.modal.getByLabel('Nom', { exact: true }).fill('Pion E2E');
     await gm.save();
-    await expect.poll(async () => (await gm.state()).world.scenes[0].tokens.some(t => t.name === 'Pion E2E')).toBe(true);
+    await expect
+      .poll(async () =>
+        (await gm.state()).world.scenes[0].tokens.some((t) => t.name === 'Pion E2E'),
+      )
+      .toBe(true);
     const box = await canvas.boundingBox();
     for (const tool of ['Contrôles des murs', 'Brouillard de guerre']) {
       await gm.page.getByRole('button', { name: tool, exact: true }).click();
@@ -96,7 +126,9 @@ test.describe('Scènes, sauvegarde et modules', () => {
     await expect.poll(async () => (await gm.state()).world.scenes[0].fog.length).toBe(0);
   });
 
-  test('raccourci personnalisé conservé après rechargement et lancé au clavier', async ({ table }) => {
+  test('raccourci personnalisé conservé après rechargement et lancé au clavier', async ({
+    table,
+  }) => {
     const gm = await table.open();
     // The slots have dynamically composed names; scope the stable hotbar container.
     await gm.page.locator('#macro-slots button').first().click({ button: 'right' });
@@ -111,7 +143,8 @@ test.describe('Scènes, sauvegarde et modules', () => {
   });
 
   test('jets aveugles et personnels filtrés entre navigateur joueur et MJ', async ({ table }) => {
-    const gm = await table.open(), player = await table.open('player');
+    const gm = await table.open(),
+      player = await table.open('player');
     await player.chat('/blindroll 1d20');
     await expect(gm.panel.locator('.roll')).toHaveCount(1);
     expect((await player.state()).world.messages).toHaveLength(0);
@@ -123,7 +156,8 @@ test.describe('Scènes, sauvegarde et modules', () => {
   });
 
   test('création et activation de scène propagées au joueur', async ({ table }) => {
-    const gm = await table.open(), player = await table.open('player');
+    const gm = await table.open(),
+      player = await table.open('player');
     await gm.page.getByTitle('Créer une scène', { exact: true }).click();
     await gm.modal.getByLabel('Nom du lieu').fill('Ruines E2E');
     await gm.save();
@@ -147,7 +181,9 @@ test.describe('Scènes, sauvegarde et modules', () => {
     const chooserPromise = gm.page.waitForEvent('filechooser');
     await gm.page.getByRole('button', { name: '↑ Importer un monde' }).click();
     await (await chooserPromise).setFiles(await download.path());
-    await expect.poll(async () => (await gm.state()).world.messages.map(m => m.text)).not.toContain('Après export');
+    await expect
+      .poll(async () => (await gm.state()).world.messages.map((m) => m.text))
+      .not.toContain('Après export');
     await gm.tab('Conversation');
     await expect(gm.panel).toContainText('Sauvegarde E2E');
   });
