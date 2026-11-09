@@ -13,6 +13,8 @@ for (const suite of [
   'security-audit',
   'privacy',
   'persistence',
+  'builder-regressions',
+  'large-world',
 ]) {
   const result = spawnSync(process.execPath, [`tests/${suite}.mjs`, binary], {
     stdio: 'inherit',

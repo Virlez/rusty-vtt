@@ -23,6 +23,7 @@ use std::{
 use tokio::sync::{Mutex, Semaphore, broadcast};
 use tokio_stream::{StreamExt, wrappers::BroadcastStream};
 mod builder;
+mod builder_validation;
 mod chat;
 mod effects;
 mod modules;
@@ -365,6 +366,7 @@ async fn persist(app: &App, w: &Value) -> Result<(), (StatusCode, String)> {
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 fn validate_world(w: &Value) -> Result<(), (StatusCode, String)> {
+    builder_validation::drafts(w)?;
     effects::validate(w)?;
     if let Some(m) = w.get("modules")
         && (!m.is_object()
@@ -422,6 +424,7 @@ fn validate_world(w: &Value) -> Result<(), (StatusCode, String)> {
         return Err(bad("Scène active absente"));
     }
     for actor in w["actors"].as_array().unwrap() {
+        builder_validation::actor(actor)?;
         if actor.get("dnd5e").is_some_and(|d| !d.is_object()) {
             return Err(bad("Données 5e invalides"));
         }

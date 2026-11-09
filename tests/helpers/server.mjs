@@ -5,7 +5,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-export async function isolatedServer() {
+export async function isolatedServer({ requestTimeout = 5000 } = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'rusty-contract-'));
   const file = join(dir, 'world.json');
   const binary = resolve(
@@ -87,7 +87,7 @@ export async function isolatedServer() {
       method: body === undefined ? 'GET' : 'POST',
       headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) },
       body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(requestTimeout),
     });
     const raw = await response.text();
     assert.equal(response.status, status, `${path}: ${raw}`);

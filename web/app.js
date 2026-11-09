@@ -55,7 +55,9 @@ async function request(url, body) {
 }
 async function refresh() {
   try {
-    state = await request('/api/state');
+    const next = await request('/api/state');
+    if (state && next.revision < state.revision) return;
+    state = next;
     if (!events) {
       events = new EventSource('/api/events');
       events.onmessage = () => refresh();
@@ -112,6 +114,23 @@ function dialog(title, fields, submit, label = 'Enregistrer') {
     if (f.type === 'number') input.step = 'any';
     box.append(l, input);
   }
+  modal.onkeydown = (event) => {
+    if (event.key !== 'Tab') return;
+    const focusable = [
+      ...modal.querySelectorAll('button, input, textarea, select, a[href], [tabindex]'),
+    ].filter(
+      (element) => !element.disabled && element.tabIndex >= 0 && element.getClientRects().length,
+    );
+    const first = focusable[0],
+      last = focusable.at(-1);
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
   form.onsubmit = async (e) => {
     e.preventDefault();
     const values = {};
@@ -131,7 +150,8 @@ function dialog(title, fields, submit, label = 'Enregistrer') {
     modal.style.left = '50%';
     modal.style.top = '50%';
     modal.style.transform = 'translate(-50%,-50%)';
-    state ? modal.show() : modal.showModal();
+    modal.showModal();
+    box.querySelector('input, textarea')?.focus();
   }
 }
 $('#modal .close').onclick = () => $('#modal').close();
@@ -165,7 +185,7 @@ $('#identity').onclick = async () => {
     }
   } else login();
 };
-function render() {
+let render = function () {
   const w = state.world,
     s = scene();
   document.body.classList.toggle('player', !gm());
@@ -184,13 +204,13 @@ function render() {
   }
   renderPanel();
   draw();
-}
+};
 function button(text, fn) {
   const b = el('button', '', text);
   b.onclick = fn;
   return b;
 }
-function renderPanel() {
+let renderPanel = function () {
   if (!state) return;
   const box = $('#panel-body'),
     w = state.world;
@@ -367,7 +387,7 @@ function renderPanel() {
         'Les pages de cette aventure sont encore vierges.\nUtilisez + pour ajouter votre premier élément.',
       ),
     );
-}
+};
 $$('[data-tab]').forEach(
   (b) =>
     (b.onclick = () => {

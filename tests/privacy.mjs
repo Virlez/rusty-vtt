@@ -122,7 +122,8 @@ try {
       const source = world.actors.find((entry) => entry.id === actor.id);
       if (name === 'MJ' || name === actor.owner) assert.deepEqual(actor, source);
       else {
-        const { foundry, ...publicFields } = source;
+        const publicFields = { ...source };
+        delete publicFields.foundry;
         assert.deepEqual(actor, { ...publicFields, notes: '', items: [], dnd5e: { level: 2 } });
       }
     }

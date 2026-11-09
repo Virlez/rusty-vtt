@@ -51,8 +51,8 @@ proptest! {
         let rect = json!({"x":x,"y":y,"w":width,"h":height});
         let translated = json!({"x":x+dx,"y":y+dy,"w":width,"h":height});
         for (px, py, expected) in [(x,y,true), (x+width,y+height,true), (x-1,y,false), (x,y-1,false), (x+width+1,y,false), (x,y+height+1,false)] {
-            prop_assert_eq!(covered(&json!({"x":px,"y":py}), &[rect.clone()]), expected);
-            prop_assert_eq!(covered(&json!({"x":px+dx,"y":py+dy}), &[translated.clone()]), expected);
+            prop_assert_eq!(covered(&json!({"x":px,"y":py}), std::slice::from_ref(&rect)), expected);
+            prop_assert_eq!(covered(&json!({"x":px+dx,"y":py+dy}), std::slice::from_ref(&translated)), expected);
         }
     }
 

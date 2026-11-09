@@ -7,6 +7,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt, llvm-tools-preview
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -14,7 +16,17 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium firefox webkit
       - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: npm run check
       - run: npm test
+      - run: cargo install cargo-llvm-cov --version 0.9.1 --locked
+      - run: npm run test:coverage
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rust-coverage
+          path: coverage/
+          retention-days: 7
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
