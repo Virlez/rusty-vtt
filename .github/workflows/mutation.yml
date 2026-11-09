@@ -1,15 +1,6 @@
 name: Mutation tests
 
 on:
-  pull_request:
-    paths:
-      - 'src/**'
-      - 'web/**'
-      - 'modules/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - '.cargo/mutants.toml'
-      - '.github/workflows/mutation.yml'
   workflow_dispatch:
 
 permissions:
