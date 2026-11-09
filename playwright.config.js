@@ -1,4 +1,4 @@
-import { defineConfig, devices } from '@playwright/test';
+import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -8,11 +8,14 @@ export default defineConfig({
   workers: process.env.CI ? 2 : 3,
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
-    ...devices['Desktop Chrome'],
     viewport: { width: 1440, height: 1000 },
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     actionTimeout: 10000,
   },
-  projects: [{ name: 'chromium' }],
+  projects: [
+    { name: 'chromium', use: { browserName: 'chromium' } },
+    { name: 'firefox', use: { browserName: 'firefox' } },
+    { name: 'webkit', use: { browserName: 'webkit' } },
+  ],
 });

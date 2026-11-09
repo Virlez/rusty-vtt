@@ -30,8 +30,8 @@ export const test = base.extend({
       });
       await use({
         url,
-        async open(role = 'gm') {
-          const context = await browser.newContext({ baseURL: url, viewport: { width: 1440, height: 1000 } });
+        async open(role = 'gm', { baseURL = url } = {}) {
+          const context = await browser.newContext({ baseURL, viewport: { width: 1440, height: 1000 } });
           contexts.push(context);
           const page = await context.newPage();
           const app = new TablePage(page);

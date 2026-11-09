@@ -1,6 +1,6 @@
 # Tests
 
-Prérequis : Rust stable, Node 24+, puis `npm ci` et `npx playwright install chromium`.
+Prérequis : Rust stable, Node 24+, puis `npm ci` et `npx playwright install --with-deps chromium firefox webkit`.
 
 `npm test` exécute toute la pyramide, dans l'ordre :
 
@@ -8,15 +8,46 @@ Prérequis : Rust stable, Node 24+, puis `npm ci` et `npx playwright install chr
 | --- | --- | --- |
 | Unitaire et règles métier Rust | `npm run test:unit` | Dés, projections privées, combat, états, géométrie, créateur 5e, configuration et quotas ; neuf propriétés générées |
 | Intégration HTTP réelle | `npm run test:integration` | Sept suites : smoke, builder, advanced, QA, sécurité, confidentialité et persistance |
-| E2E Chromium | `npm run test:e2e` | Sessions, deux clients SSE, dés publics/privés, fiches et initiative, journal, objets, ambiance, canvas, raccourcis, scènes, import/export et brouillons 5e |
+| E2E Chromium, Firefox et WebKit | `npm run test:e2e` | Sessions, deux clients SSE, dés publics/privés, fiches et initiative, journal, objets, ambiance, canvas, raccourcis, scènes, import/export et brouillons 5e |
 
 Les E2E utilisent le vrai binaire Rust et les vrais échanges HTTP/SSE, sans simuler le backend. Chaque test démarre son serveur sur un port attribué par le système et un monde temporaire supprimé après le test. Les sessions MJ et joueur ont des contextes navigateur distincts. Les suites HTTP historiques utilisent leurs ports dédiés et sont exécutées séquentiellement. Aucun test ne lit `data/world.json` de votre campagne.
 
 `RUSTY_TEST_BINARY` permet de choisir un binaire précompilé. Les commandes npm compilent normalement `target/debug/rusty-vtt` (avec `.exe` sous Windows). Éviter de recompiler pendant une suite : Windows verrouille les exécutables en cours d'utilisation.
 
-Pour travailler sur les E2E : `npm run test:e2e:ui`, ou `npx playwright test --grep "journal"`. Le mode UI suppose le binaire déjà compilé. Consulter les diagnostics avec `npm run test:e2e:report` ; captures et traces sont conservées sur échec. La CI installe Chromium et exécute `npm test`, puis publie les diagnostics en cas d'échec.
+Pour travailler sur les E2E : `npm run test:e2e:ui`, ou `npx playwright test --grep "journal"`. Le mode UI suppose le binaire déjà compilé. Consulter les diagnostics avec `npm run test:e2e:report` ; captures et traces sont conservées sur échec. La CI installe les trois moteurs et leurs dépendances système, puis exécute `npm test`, puis publie les diagnostics en cas d'échec.
 
-La couverture navigateur cible Chromium. La matrice Firefox/WebKit, les comparaisons visuelles, la lecture audio effective, la création 5e exhaustive et les gestes tactiles restent à compléter. Les règles détaillées du créateur, des portes, des collisions et des états sont surtout vérifiées dans les couches Rust et HTTP pour conserver une suite E2E rapide.
+La suite exécute les mêmes 11 scénarios sur Chromium, Firefox et WebKit, soit 33 tests. WebKit vérifie le moteur utilisé par Safari, sans certifier Safari sur macOS/iOS. Les comparaisons visuelles, la lecture audio effective, la création 5e exhaustive et les gestes tactiles restent à compléter. Les règles détaillées du créateur, des portes, des collisions et des états sont surtout vérifiées dans les couches Rust et HTTP pour conserver une suite E2E rapide.
+
+## E2E multi-navigateur
+
+`npm run test:e2e` compile le serveur puis exécute les trois projets Playwright.
+Le viewport est commun (1440 × 1000), avec trois workers en local et deux en CI.
+Chaque scénario et chaque moteur disposent de leur propre serveur et monde
+éphémère. Les contextes MJ et joueur utilisent le moteur du projet courant.
+
+```sh
+# Un moteur pour une boucle de développement plus courte :
+npm run test:e2e -- --project=firefox
+# Les mêmes parcours sur les trois moteurs, sans recompilation :
+npx playwright test
+# Uniquement la reconnexion SSE :
+npx playwright test reconnection.spec.js
+```
+
+Le scénario de reconnexion utilise un relais HTTP local réservé au joueur.
+Il coupe sa connexion SSE réelle et rend ses rafraîchissements HTTP indisponibles,
+pendant que le MJ continue à publier un message public et un jet personnel.
+À la reprise du relais, le navigateur doit récupérer le message manqué sans
+rechargement ni nouvelle action, conserver sa session, masquer le jet personnel
+et reprendre les échanges dans les deux sens. Les nouvelles tentatives SSE sont
+retenues pendant l'interruption, puis retransmises au vrai serveur ; aucun état
+de monde ni résultat métier n'est simulé. Cela évite de dépendre du comportement
+du mode hors ligne de chaque navigateur sur les connexions déjà ouvertes.
+
+La CI conserve les traces et captures en cas d'échec ; les chemins Playwright
+identifient le projet (`chromium`, `firefox`, `webkit`). Il n'y a pas d'exclusion
+par moteur ni de scénario ignoré. Installer les dépendances système nécessite
+les droits correspondants sur Linux ; `--with-deps` s'en charge en CI.
 
 ## Confidentialité HTTP/SSE et persistance
 
