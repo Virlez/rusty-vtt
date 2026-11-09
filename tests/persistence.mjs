@@ -38,12 +38,20 @@ try {
         const disk = await readFile(server.file, 'utf8');
         const imported = structuredClone(before.world);
         imported.name = 'MUST_NOT_COMMIT';
-        const body = endpoint === '/api/action' ? { kind: 'chat', text: 'MUST_NOT_COMMIT' } : imported;
+        const body =
+          endpoint === '/api/action' ? { kind: 'chat', text: 'MUST_NOT_COMMIT' } : imported;
         if (failure === 'write') await mkdir(tmp);
-        else { await rm(server.file); await mkdir(server.file); }
+        else {
+          await rm(server.file);
+          await mkdir(server.file);
+        }
         try {
           await server.request(endpoint, { cookie: gm, body, status: 500 });
-          assert.deepEqual(await server.state(gm), before, `${failure}/${endpoint}: world or revision changed`);
+          assert.deepEqual(
+            await server.state(gm),
+            before,
+            `${failure}/${endpoint}: world or revision changed`,
+          );
           if (failure === 'write') assert.equal(await readFile(server.file, 'utf8'), disk);
           else assert.equal((await stat(server.file)).isDirectory(), true);
         } finally {
@@ -54,28 +62,48 @@ try {
           }
         }
         // If a failed operation emitted an event, it will be ahead of this one.
-        const recovered = await server.action(gm, { kind: 'chat', text: `recovered ${failure} ${endpoint}` });
+        const recovered = await server.action(gm, {
+          kind: 'chat',
+          text: `recovered ${failure} ${endpoint}`,
+        });
         assert.equal(recovered.revision, before.revision + 1);
         assert.equal(await stream.next(), `data: ${recovered.revision}`);
         assert.deepEqual(JSON.parse(await readFile(server.file, 'utf8')), recovered.world);
       }
     }
-  } finally { stream.close(); }
+  } finally {
+    stream.close();
+  }
 
   // Simultaneous requests must serialize without lost appends or duplicate revisions.
   const before = await server.state(gm);
   const names = Array.from({ length: 12 }, (_, i) => `Concurrent journal ${i}`);
-  const results = await Promise.all(names.map(name => server.action(gm, { kind: 'add_journal', name, content: name, public: true })));
-  assert.deepEqual(results.map(result => result.revision).sort((a, b) => a - b), names.map((_, i) => before.revision + i + 1));
+  const results = await Promise.all(
+    names.map((name) =>
+      server.action(gm, { kind: 'add_journal', name, content: name, public: true }),
+    ),
+  );
+  assert.deepEqual(
+    results.map((result) => result.revision).sort((a, b) => a - b),
+    names.map((_, i) => before.revision + i + 1),
+  );
   const final = await server.state(gm);
   assert.equal(final.revision, before.revision + names.length);
-  for (const name of names) assert.equal(final.world.journals.filter(entry => entry.name === name).length, 1);
-  assert.equal(new Set(final.world.journals.map(entry => entry.id)).size, final.world.journals.length);
+  for (const name of names)
+    assert.equal(final.world.journals.filter((entry) => entry.name === name).length, 1);
+  assert.equal(
+    new Set(final.world.journals.map((entry) => entry.id)).size,
+    final.world.journals.length,
+  );
   assert.deepEqual(JSON.parse(await readFile(server.file, 'utf8')), final.world);
   await server.stop();
   await server.boot();
   gm = (await server.login('MJ')).cookie;
   assert.deepEqual((await server.state(gm)).world, final.world);
   assert.deepEqual((await server.request('/api/export', { cookie: gm })).data, final.world);
-  console.log('PASS — persistance : corruption préservée, export/import, échecs écriture/renommage atomiques, reprise, concurrence et redémarrage.');
-} finally { await server.dispose(); }
+  console.log(
+    'PASS — persistance : corruption préservée, export/import, échecs écriture/renommage atomiques, reprise, concurrence et redémarrage.',
+  );
+} finally {
+  await server.dispose();
+}

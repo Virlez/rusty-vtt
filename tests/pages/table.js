@@ -8,13 +8,21 @@ export class TablePage {
     this.panel = page.locator('#panel-body');
   }
   async login(role = 'gm') {
-    await this.page.getByLabel('Votre nom configuré par le meneur').fill(role === 'gm' ? 'MJ' : 'Alice');
-    await this.page.getByLabel('Votre secret personnel ou le secret du meneur').fill(role === 'gm' ? 'e2e-gm-secret-123456' : 'e2e-alice-secret-123456');
+    await this.page
+      .getByLabel('Votre nom configuré par le meneur')
+      .fill(role === 'gm' ? 'MJ' : 'Alice');
+    await this.page
+      .getByLabel('Votre secret personnel ou le secret du meneur')
+      .fill(role === 'gm' ? 'e2e-gm-secret-123456' : 'e2e-alice-secret-123456');
     await this.page.getByRole('button', { name: 'Rejoindre l’aventure' }).click();
-    await expect(this.page.getByRole('button', { name: role === 'gm' ? 'MJ · Meneur' : 'Alice · Joueur' })).toBeVisible();
+    await expect(
+      this.page.getByRole('button', { name: role === 'gm' ? 'MJ · Meneur' : 'Alice · Joueur' }),
+    ).toBeVisible();
     await expect(this.modal).not.toBeVisible();
   }
-  async tab(name) { await this.page.getByRole('button', { name, exact: true }).click(); }
+  async tab(name) {
+    await this.page.getByRole('button', { name, exact: true }).click();
+  }
   async create(fields) {
     await this.page.getByTitle('Créer un document', { exact: true }).click();
     for (const [label, value] of Object.entries(fields)) {
