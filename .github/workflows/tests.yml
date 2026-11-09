@@ -22,4 +22,5 @@ jobs:
           path: |
             playwright-report/
             test-results/
+            proptest-regressions/
           retention-days: 7

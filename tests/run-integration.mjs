@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 
 const binary = resolve(process.env.RUSTY_TEST_BINARY || `target/debug/rusty-vtt${process.platform === 'win32' ? '.exe' : ''}`);
-for (const suite of ['smoke', 'builder-smoke', 'advanced', 'qa-audit', 'security-audit']) {
+for (const suite of ['smoke', 'builder-smoke', 'advanced', 'qa-audit', 'security-audit', 'privacy', 'persistence']) {
   const result = spawnSync(process.execPath, [`tests/${suite}.mjs`, binary], {
     stdio: 'inherit', windowsHide: true, timeout: 120000,
   });
