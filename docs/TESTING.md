@@ -57,8 +57,9 @@ par étapes. La campagne de mutation n'exécute pas les suites HTTP ou Playwrigh
 pour chaque variante. Elle est séparée de `npm test` pour conserver une boucle
 de développement rapide.
 
-Le workflow **Mutation tests** se lance sur les PR qui touchent le code ou ses
-données embarquées, ainsi que manuellement avec `workflow_dispatch`. Une mutation
+Le workflow **Mutation tests** se lance uniquement à la demande avec
+`workflow_dispatch` : dans GitHub Actions, sélectionner **Mutation tests**, puis
+**Run workflow** et la branche à tester. Il ne se déclenche pas sur les PR. Une mutation
 survivante fait échouer le job ; un dépassement du délai de test est également
 un échec à analyser. Aucun `continue-on-error` ne masque le résultat. Le rapport
 `mutation-report` est conservé 14 jours, y compris lorsque le job échoue.
