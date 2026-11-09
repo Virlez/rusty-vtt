@@ -66,7 +66,7 @@ fn id() -> String {
 fn user(headers: &HeaderMap, inner: &Inner) -> Result<User, (StatusCode, String)> {
     session_key(headers)
         .and_then(|k| inner.sessions.get(k))
-        .filter(|s| s.expires > Instant::now())
+        .filter(|s| s.valid_at(Instant::now()))
         .map(|s| s.user.clone())
         .ok_or((
             StatusCode::UNAUTHORIZED,
@@ -985,6 +985,91 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn ownership_matrix() {
+        for role in ["player", "gm"] {
+            let u = User {
+                name: "Alice".into(),
+                role: role.into(),
+            };
+            for (document, allowed) in [
+                (json!({"owner":"Alice"}), true),
+                (json!({"owner":""}), true),
+                (json!({"owner":"Bob"}), role == "gm"),
+                (json!({}), role == "gm"),
+            ] {
+                assert_eq!(owned(&u, &document), allowed);
+            }
+        }
+    }
+
+    #[test]
+    fn numeric_validation_includes_bounds_and_rejects_wrong_types() {
+        for n in [-10., 0., 10.] {
+            assert_eq!(num(&json!({"n":n}), "n", -10., 10.).unwrap(), n);
+        }
+        for n in [
+            json!(-10.01),
+            json!(10.01),
+            json!(null),
+            json!("0"),
+            json!(true),
+        ] {
+            assert_eq!(
+                num(&json!({"n":n}), "n", -10., 10.).unwrap_err().0,
+                StatusCode::BAD_REQUEST
+            );
+        }
+        assert!(num(&json!({}), "n", -10., 10.).is_err());
+        for hp in [1, 10000] {
+            assert_eq!(max_hp(&json!({"max_hp":hp})).unwrap(), hp);
+        }
+        for hp in [json!(0), json!(10001), json!(1.5), json!(null)] {
+            assert!(max_hp(&json!({"max_hp":hp})).is_err());
+        }
+    }
+
+    #[test]
+    fn cookie_parsing_and_authenticated_identity() {
+        let mut inner = Inner {
+            world: demo(),
+            revision: 0,
+            sessions: HashMap::new(),
+            logins: HashMap::new(),
+        };
+        inner
+            .sessions
+            .insert("valid".into(), security::Session::new(player()));
+        let mut headers = HeaderMap::new();
+        assert_eq!(session_key(&headers), None);
+        assert_eq!(
+            user(&headers, &inner).err().unwrap().0,
+            StatusCode::UNAUTHORIZED
+        );
+        for cookie in ["other=x", "rusty_session=unknown", "rusty_session="] {
+            headers.insert(header::COOKIE, cookie.parse().unwrap());
+            assert!(user(&headers, &inner).is_err());
+        }
+        headers.insert(
+            header::COOKIE,
+            "other=x; rusty_session=valid; extra=y".parse().unwrap(),
+        );
+        assert_eq!(session_key(&headers), Some("valid"));
+        let authenticated = user(&headers, &inner).unwrap();
+        assert_eq!(authenticated.name, "Alice");
+        assert_eq!(authenticated.role, "player");
+        for secure in [false, true] {
+            let cookie = session_cookie("token", secure, 123);
+            assert_eq!(
+                cookie,
+                format!(
+                    "rusty_session=token; HttpOnly; SameSite=Strict; Path=/; Max-Age=123{}",
+                    if secure { "; Secure" } else { "" }
+                )
+            );
+        }
+    }
+
     #[test]
     fn fog_includes_edges_but_not_adjacent_points() {
         let fog = vec![json!({"x":10,"y":20,"w":30,"h":40})];

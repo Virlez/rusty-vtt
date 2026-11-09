@@ -80,6 +80,10 @@ Limites de protection : 30 tentatives de connexion par minute et par IP source, 
 
 La pyramide complète (Rust, cinq suites HTTP et parcours navigateur Playwright) se lance avec `npm ci`, `npx playwright install chromium`, puis `npm test`. Détails, isolation et diagnostics : [docs/TESTING.md](docs/TESTING.md).
 
+Les règles critiques disposent aussi d'une campagne de mutation avec `cargo-mutants` :
+`npm run test:mutation` (installation et périmètre dans [docs/TESTING.md](docs/TESTING.md#tests-de-mutation-du-noyau-critique)).
+Le workflow **Mutation tests** se lance manuellement depuis GitHub Actions et conserve son rapport.
+
 Prérequis pour recompiler : Rust stable avec la cible Windows MSVC et ses outils de compilation. Les dépendances exactes sont figées dans `Cargo.lock`.
 
 ```powershell

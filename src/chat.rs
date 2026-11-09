@@ -78,6 +78,44 @@ pub fn project(w: &mut Value, u: &User) {
 mod tests {
     use super::*;
     #[test]
+    fn projection_returns_exact_messages_and_rejects_unknown_modes() {
+        let original = json!({"messages":[
+            {"id":"public","author":"Alice","mode":"public"},
+            {"id":"gm","author":"Alice","mode":"gm"},
+            {"id":"blind","author":"Alice","mode":"blind"},
+            {"id":"self","author":"Alice","mode":"self"},
+            {"id":"whisper","author":"Alice","mode":"whisper","recipients":["Bob"]},
+            {"id":"unknown","author":"Alice","mode":"invalid"},
+            {"id":"malformed","author":"Alice","mode":"whisper","recipients":null}
+        ]});
+        for (name, role, expected) in [
+            (
+                "Alice",
+                "player",
+                vec!["public", "gm", "self", "whisper", "malformed"],
+            ),
+            ("Bob", "player", vec!["public", "whisper"]),
+            ("Eve", "player", vec!["public"]),
+            ("MJ", "gm", vec!["public", "gm", "blind"]),
+            (
+                "Alice",
+                "gm",
+                vec!["public", "gm", "blind", "self", "whisper", "malformed"],
+            ),
+        ] {
+            let mut view = original.clone();
+            project(&mut view, &user(name, role));
+            let ids: Vec<&str> = view["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|m| m["id"].as_str().unwrap())
+                .collect();
+            assert_eq!(ids, expected, "{name}/{role}");
+        }
+    }
+
+    #[test]
     fn history_evicts_oldest_and_normalizes_recipients() {
         let mut w = json!({"messages": (0..500).map(|i| json!({"text":i})).collect::<Vec<_>>()});
         apply(

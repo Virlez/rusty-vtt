@@ -1,0 +1,14 @@
+# Bounded, deterministic core: authorization, privacy, validation and combat rules.
+# Match function names rather than line numbers so edits do not move the scope.
+examine_re = [
+  '\b(user|session_key|session_cookie|owned|covered|num|max_hp)\b',
+  '\b(players|bind_address|Window::allow|Window::expired|Session::valid_at)\b',
+  'src/chat.rs:.*\bproject\b',
+  'src/effects.rs:.*\badvance_round\b',
+  'src/scene_tools.rs:.*\b(blocks|check_move|visible)\b',
+]
+additional_cargo_args = ["--locked", "--offline"]
+additional_cargo_test_args = ["--bin", "rusty-vtt"]
+error_values = ["Default::default()"]
+minimum_test_timeout = 20
+timeout_multiplier = 5

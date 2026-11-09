@@ -44,6 +44,10 @@ pub struct Session {
     pub streams: std::sync::Arc<tokio::sync::Semaphore>,
 }
 impl Session {
+    pub fn valid_at(&self, now: Instant) -> bool {
+        self.expires > now
+    }
+
     pub fn new(user: User) -> Self {
         Self {
             user,
@@ -91,6 +95,50 @@ pub fn bind_address(raw: &str) -> Result<SocketAddr, (StatusCode, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn session_expiration_has_an_exclusive_deadline() {
+        let session = Session::new(User {
+            name: "Alice".into(),
+            role: "player".into(),
+        });
+        assert!(session.valid_at(session.expires - Duration::from_nanos(1)));
+        assert!(!session.valid_at(session.expires));
+        assert!(!session.valid_at(session.expires + Duration::from_nanos(1)));
+    }
+    #[test]
+    fn player_configuration_limits_and_preservation() {
+        let gm = "gm-secret-12345678";
+        assert_eq!(players("{}", gm).unwrap(), HashMap::new());
+        for count in [1, 128, 129] {
+            let entries: HashMap<String, String> = (0..count)
+                .map(|i| (format!("Player{i}"), format!("unique-secret-{i:016}")))
+                .collect();
+            let result = players(&serde_json::to_string(&entries).unwrap(), gm);
+            if count <= 128 {
+                assert_eq!(result.unwrap(), entries);
+            } else {
+                assert!(result.is_err());
+            }
+        }
+        for (name, secret, valid) in [
+            ("a".repeat(60), "s".repeat(16), true),
+            ("a".repeat(61), "s".repeat(16), false),
+            ("Alice ".into(), "s".repeat(16), false),
+            ("Alice".into(), "s".repeat(15), false),
+        ] {
+            let raw = serde_json::to_string(&HashMap::from([(name, secret)])).unwrap();
+            assert_eq!(players(&raw, gm).is_ok(), valid, "{raw}");
+        }
+        let mut window = Window::new();
+        assert!(!window.expired());
+        assert!(window.allow(2));
+        assert!(window.allow(2));
+        assert!(!window.allow(2));
+        // A refused request must not consume quota if the limit is later raised.
+        assert!(window.allow(3));
+        assert!(!window.allow(3));
+    }
+
     #[test]
     fn expired_rate_window_resets_without_sleeping() {
         let mut window = Window::new();

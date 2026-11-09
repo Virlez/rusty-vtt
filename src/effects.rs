@@ -137,6 +137,33 @@ pub fn advance_round(w: &mut Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn rounds_decrement_only_active_participants_and_preserve_hp() {
+        let mut w = json!({"actors":[
+            {"id":"a","hp":17,"effects":[
+                {"id":"active","rounds":3,"disabled":false},
+                {"id":"expired","rounds":1,"disabled":false},
+                {"id":"paused","rounds":2,"disabled":true},
+                {"id":"permanent","rounds":null,"disabled":false}]},
+            {"id":"b","hp":12,"effects":[{"id":"outside","rounds":3,"disabled":false}]}
+        ],"combat":{"order":["a"]}});
+        let outside = w["actors"][1].clone();
+        advance_round(&mut w);
+        assert_eq!(w["actors"][0]["hp"], 17);
+        assert_eq!(
+            w["actors"][0]["effects"],
+            json!([
+            {"id":"active","rounds":2,"disabled":false},
+            {"id":"paused","rounds":2,"disabled":true},
+            {"id":"permanent","rounds":null,"disabled":false}])
+        );
+        assert_eq!(w["actors"][1], outside);
+        w["combat"]["order"] = json!([]);
+        let before = w.clone();
+        advance_round(&mut w);
+        assert_eq!(w, before);
+    }
+
     fn player() -> User {
         User {
             name: "Alice".into(),
