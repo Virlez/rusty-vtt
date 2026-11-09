@@ -78,7 +78,7 @@ Limites de protection : 30 tentatives de connexion par minute et par IP source, 
 
 ## Développement et vérification
 
-La pyramide complète (Rust, cinq suites HTTP et parcours navigateur Playwright) se lance avec `npm ci`, `npx playwright install chromium`, puis `npm test`. Détails, isolation et diagnostics : [docs/TESTING.md](docs/TESTING.md).
+La pyramide complète (Rust avec propriétés générées, sept suites HTTP et parcours navigateur Playwright) se lance avec `npm ci`, `npx playwright install chromium`, puis `npm test`. Détails, isolation et diagnostics : [docs/TESTING.md](docs/TESTING.md).
 
 Les règles critiques disposent aussi d'une campagne de mutation avec `cargo-mutants` :
 `npm run test:mutation` (installation et périmètre dans [docs/TESTING.md](docs/TESTING.md#tests-de-mutation-du-noyau-critique)).

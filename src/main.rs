@@ -26,6 +26,8 @@ mod builder;
 mod chat;
 mod effects;
 mod modules;
+#[cfg(test)]
+mod property_tests;
 mod scene_tools;
 mod security;
 
